@@ -1,0 +1,32 @@
+name: tinybase
+description: >
+  BaaS auto-hébergé en Dart — moteur de collections dynamique inspiré de
+  PocketBase (shelf + sqlite_async), admin en Flutter Web, compilé en
+  binaire unique via `dart compile exe`.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.5.0
+
+# Dépendances volontairement absentes ici : lance
+#   dart pub add shelf shelf_router sqlite_async dart_jsonwebtoken bcrypt uuid
+# pour que pub résolve lui-même les dernières versions compatibles plutôt
+# que de figer des numéros de version à la main.
+dependencies:
+  tinybase_shared:
+    path: ../tinybase_shared
+  tinybase_codegen:
+    path: ../tinybase_codegen
+  bcrypt: ^1.2.0
+  dart_jsonwebtoken: ^3.4.1
+  http: ^1.2.2
+  shelf: ^1.4.2
+  shelf_router: ^1.1.4
+  shelf_static: ^1.1.3
+  sqlite_async: ^0.14.5
+  uuid: ^4.6.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.8

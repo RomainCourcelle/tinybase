@@ -1,0 +1,17 @@
+name: tinybase_shared
+description: >
+  Modèles partagés entre tinybase_server et tinybase_admin (FieldType,
+  FieldDefinition, CollectionDefinition) — source unique de vérité pour le
+  schéma TinyBase, pour ne pas dupliquer ces classes entre le serveur Dart
+  et l'admin Flutter Web.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.5.0
+
+dependencies: {}
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.8

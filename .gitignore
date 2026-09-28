@@ -1,0 +1,29 @@
+# Racine du monorepo — filet de sécurité en plus des .gitignore par package
+# (packages/tinybase_server/.gitignore, packages/tinybase_admin/.gitignore) :
+# couvre aussi tinybase_codegen/ et tinybase_shared/, qui n'en ont pas.
+
+# Dart/Flutter
+.dart_tool/
+.packages
+.flutter-plugins-dependencies
+build/
+.pub-cache/
+.pub/
+
+# Bases SQLite de dev — jamais dans le repo (contiennent des mots de passe
+# hashés, des tokens... et de toute façon régénérées à chaque instance).
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
