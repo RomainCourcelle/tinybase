@@ -33,7 +33,16 @@ COPY packages/tinybase_codegen packages/tinybase_codegen
 COPY packages/tinybase_server packages/tinybase_server
 WORKDIR /repo/packages/tinybase_server
 RUN dart pub get
-RUN dart compile exe bin/server.dart -o bin/server
+# PAS `dart compile exe` : sqlite3/sqlite3_connection_pool (dépendances de
+# sqlite_async) utilisent désormais les "build hooks" (assets natifs) pour
+# fournir leur bibliothèque SQLite native — `dart compile exe` ne sait pas
+# les intégrer ("does not support build hooks, use 'dart build' instead",
+# erreur obtenue en essayant sur Railway) et ne compile QUE le binaire, sans
+# la lib native dont il a besoin au runtime de toute façon. `dart build cli`
+# est le remplaçant officiel : il produit un dossier `bundle/` avec le
+# binaire dans `bin/` et la(les) bibliothèque(s) native(s) dans `lib/`, côte
+# à côte — voir stage-2 plus bas qui copie tout ce dossier tel quel.
+RUN dart build cli --target=bin/server.dart --output=dist
 
 # --- Stage 3 : image runtime -------------------------------------------------
 # `debian-slim` (pas `scratch`) car dart compile exe est lié dynamiquement à
@@ -42,7 +51,10 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=server-build /repo/packages/tinybase_server/bin/server /app/server
+# `dist/bundle/` = { bin/server, lib/*.so } — copiés ensemble et gardés
+# côte à côte (bin/ et lib/ frères sous /app) car le binaire résout sa(ses)
+# bibliothèque(s) native(s) via un chemin relatif à cette structure.
+COPY --from=server-build /repo/packages/tinybase_server/dist/bundle /app
 COPY --from=admin-build /repo/packages/tinybase_admin/build/web /app/public
 EXPOSE 8090
-CMD ["/app/server"]
+CMD ["/app/bin/server"]
