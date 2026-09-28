@@ -9,6 +9,11 @@
 # --- Stage 1 : build de l'admin Flutter Web ---------------------------------
 FROM ghcr.io/cirruslabs/flutter:stable AS admin-build
 WORKDIR /repo
+# tinybase_admin dépend de tinybase_shared via `path: ../tinybase_shared`
+# (voir pubspec.yaml) — sans copier aussi ce dossier ici, `flutter pub get`
+# échoue avec "package tinybase_shared at ../tinybase_shared" introuvable,
+# le chemin relatif ne pointant vers rien dans ce stage de build isolé.
+COPY packages/tinybase_shared packages/tinybase_shared
 COPY packages/tinybase_admin packages/tinybase_admin
 WORKDIR /repo/packages/tinybase_admin
 RUN flutter pub get
@@ -20,6 +25,11 @@ RUN flutter build web --release
 FROM dart:stable AS server-build
 WORKDIR /repo
 COPY packages/tinybase_shared packages/tinybase_shared
+# tinybase_server dépend AUSSI de tinybase_codegen via `path: ../tinybase_codegen`
+# (voir pubspec.yaml, utilisé par settings_routes.dart pour l'auth codegen) —
+# même bug que pour tinybase_shared côté admin-build ci-dessus : oublié ici,
+# `dart pub get` aurait échoué juste après le fix de tinybase_admin.
+COPY packages/tinybase_codegen packages/tinybase_codegen
 COPY packages/tinybase_server packages/tinybase_server
 WORKDIR /repo/packages/tinybase_server
 RUN dart pub get
