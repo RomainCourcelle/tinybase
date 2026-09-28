@@ -19,7 +19,15 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.13.2
+  # `flutter create` avait généré `^3.13.2` (version locale au moment de la
+  # création du projet) — trop récent pour l'image Docker
+  # `ghcr.io/cirruslabs/flutter:stable` utilisée par le build Railway
+  # (Dart 3.12.0 dedans au moment où ce commentaire est écrit) : le build
+  # plantait sur "version solving failed" avant même d'installer les
+  # dépendances. Rien dans ce projet n'a besoin d'une fonctionnalité propre
+  # à Dart 3.13 — abaissé pour rester compatible avec l'image Docker sans
+  # dépendre de son rythme de mise à jour.
+  sdk: ^3.9.0
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
