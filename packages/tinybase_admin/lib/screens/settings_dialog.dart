@@ -1,27 +1,52 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
+import '../theme/app_colors.dart';
+import '../widgets/ui_bits.dart';
+import 'codegen_dialog.dart';
 
-/// Réglages globaux de l'instance (inscriptions ouvertes, connexion
-/// Discord) — même esprit que la page "Réglages" de NexusBase : édité en
-/// base, pris en compte tout de suite, pas de redémarrage.
-class SettingsDialog extends StatefulWidget {
+/// Snippet pubspec pour une app hors monorepo (Railway = serveur, GitHub = package).
+const _kClientPubspecSnippet = '''
+dependencies:
+  tinybase_client:
+    git:
+      url: https://github.com/RomainCourcelle/tinybase.git
+      path: packages/tinybase_client
+      ref: main
+''';
+
+/// Réglages : inscriptions, session, providers OAuth (style Supabase), codegen.
+class SettingsScreen extends StatefulWidget {
   final ApiClient client;
-  const SettingsDialog({super.key, required this.client});
+  const SettingsScreen({super.key, required this.client});
 
   @override
-  State<SettingsDialog> createState() => _SettingsDialogState();
+  State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsDialogState extends State<SettingsDialog> {
+class _SettingsScreenState extends State<SettingsScreen> {
   AppSettings? _settings;
   bool _loading = true;
   bool _saving = false;
+  bool _generatingAuth = false;
   String? _error;
 
   bool _registrationsOpen = true;
-  final _clientIdController = TextEditingController();
-  final _clientSecretController = TextEditingController();
+  final _sessionDaysController = TextEditingController();
+
+  final _discordId = TextEditingController();
+  final _discordSecret = TextEditingController();
+  final _googleId = TextEditingController();
+  final _googleSecret = TextEditingController();
+  final _microsoftId = TextEditingController();
+  final _microsoftSecret = TextEditingController();
+  final _appleId = TextEditingController();
+  final _appleTeam = TextEditingController();
+  final _appleKey = TextEditingController();
+  final _applePrivate = TextEditingController();
+
+  final Set<String> _expanded = {};
 
   @override
   void initState() {
@@ -31,8 +56,21 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
   @override
   void dispose() {
-    _clientIdController.dispose();
-    _clientSecretController.dispose();
+    _sessionDaysController.dispose();
+    for (final c in [
+      _discordId,
+      _discordSecret,
+      _googleId,
+      _googleSecret,
+      _microsoftId,
+      _microsoftSecret,
+      _appleId,
+      _appleTeam,
+      _appleKey,
+      _applePrivate,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -46,7 +84,13 @@ class _SettingsDialogState extends State<SettingsDialog> {
       setState(() {
         _settings = settings;
         _registrationsOpen = settings.registrationsOpen;
-        _clientIdController.text = settings.discordClientId ?? '';
+        _sessionDaysController.text = '${settings.refreshTokenTtlDays}';
+        _discordId.text = settings.discord.clientId ?? '';
+        _googleId.text = settings.google.clientId ?? '';
+        _microsoftId.text = settings.microsoft.clientId ?? '';
+        _appleId.text = settings.apple.clientId ?? '';
+        _appleTeam.text = settings.apple.teamId ?? '';
+        _appleKey.text = settings.apple.keyId ?? '';
         _loading = false;
       });
     } on ApiException catch (e) {
@@ -70,20 +114,122 @@ class _SettingsDialogState extends State<SettingsDialog> {
     }
   }
 
-  Future<void> _saveDiscord() async {
+  Future<void> _saveSession() async {
+    final days = int.tryParse(_sessionDaysController.text.trim());
+    if (days == null) {
+      setState(() => _error = 'Durée de session invalide');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final settings = await widget.client.updateSettings(refreshTokenTtlDays: days);
+      setState(() {
+        _settings = settings;
+        _sessionDaysController.text = '${settings.refreshTokenTtlDays}';
+        _saving = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Durée de session enregistrée')),
+        );
+      }
+    } on ApiException catch (e) {
+      setState(() {
+        _error = e.message;
+        _saving = false;
+      });
+    }
+  }
+
+  Future<void> _saveProvider(String id) async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      late final AppSettings settings;
+      switch (id) {
+        case 'discord':
+          settings = await widget.client.updateSettings(
+            discordClientId: _discordId.text.trim(),
+            discordClientSecret: _discordSecret.text.trim().isEmpty ? null : _discordSecret.text.trim(),
+          );
+          _discordSecret.clear();
+        case 'google':
+          settings = await widget.client.updateSettings(
+            googleClientId: _googleId.text.trim(),
+            googleClientSecret: _googleSecret.text.trim().isEmpty ? null : _googleSecret.text.trim(),
+          );
+          _googleSecret.clear();
+        case 'microsoft':
+          settings = await widget.client.updateSettings(
+            microsoftClientId: _microsoftId.text.trim(),
+            microsoftClientSecret: _microsoftSecret.text.trim().isEmpty ? null : _microsoftSecret.text.trim(),
+          );
+          _microsoftSecret.clear();
+        case 'apple':
+          settings = await widget.client.updateSettings(
+            appleClientId: _appleId.text.trim(),
+            appleTeamId: _appleTeam.text.trim(),
+            appleKeyId: _appleKey.text.trim(),
+            applePrivateKey: _applePrivate.text.trim().isEmpty ? null : _applePrivate.text.trim(),
+          );
+          _applePrivate.clear();
+        default:
+          throw StateError('provider inconnu');
+      }
+      setState(() {
+        _settings = settings;
+        _saving = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$id enregistré')));
+      }
+    } on ApiException catch (e) {
+      setState(() {
+        _error = e.message;
+        _saving = false;
+      });
+    }
+  }
+
+  Future<void> _disableProvider(String id) async {
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
       final settings = await widget.client.updateSettings(
-        discordClientId: _clientIdController.text.trim(),
-        discordClientSecret: _clientSecretController.text.trim().isEmpty ? null : _clientSecretController.text.trim(),
+        disableDiscord: id == 'discord',
+        disableGoogle: id == 'google',
+        disableMicrosoft: id == 'microsoft',
+        disableApple: id == 'apple',
       );
       setState(() {
         _settings = settings;
-        _clientSecretController.clear();
         _saving = false;
+        _expanded.remove(id);
+        if (id == 'discord') {
+          _discordId.clear();
+          _discordSecret.clear();
+        }
+        if (id == 'google') {
+          _googleId.clear();
+          _googleSecret.clear();
+        }
+        if (id == 'microsoft') {
+          _microsoftId.clear();
+          _microsoftSecret.clear();
+        }
+        if (id == 'apple') {
+          _appleId.clear();
+          _appleTeam.clear();
+          _appleKey.clear();
+          _applePrivate.clear();
+        }
       });
     } on ApiException catch (e) {
       setState(() {
@@ -93,144 +239,372 @@ class _SettingsDialogState extends State<SettingsDialog> {
     }
   }
 
-  Future<void> _disableDiscord() async {
+  Future<void> _generateAuthCode() async {
     setState(() {
-      _saving = true;
+      _generatingAuth = true;
       _error = null;
     });
     try {
-      final settings = await widget.client.updateSettings(disableDiscord: true);
-      setState(() {
-        _settings = settings;
-        _clientIdController.clear();
-        _clientSecretController.clear();
-        _saving = false;
-      });
+      final files = await widget.client.authCodegen();
+      if (!mounted) return;
+      setState(() => _generatingAuth = false);
+      await showDialog(
+        context: context,
+        builder: (_) => CodegenDialog(title: 'Authentification', files: files),
+      );
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.message;
-        _saving = false;
+        _generatingAuth = false;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      child: SizedBox(
-        width: 560,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: _loading
-              ? const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()))
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(child: Text('Réglages', style: Theme.of(context).textTheme.titleLarge)),
-                        IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+    if (_loading) return const Center(child: CircularProgressIndicator());
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const PageHeader(
+          title: 'Réglages',
+          subtitle: 'Pris en compte immédiatement, sans redémarrage.',
+        ),
+        Expanded(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
+                children: [
+                  if (_error != null) ...[
+                    Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    const SizedBox(height: 12),
+                  ],
+                  if (_settings != null) ...[
+                    _label('Inscriptions'),
+                    const SizedBox(height: 8),
+                    _panel(
+                      child: SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        title: const Text('Inscriptions ouvertes', style: TextStyle(color: AppColors.text)),
+                        subtitle: const Text('Email/mot de passe et OAuth.'),
+                        value: _registrationsOpen,
+                        onChanged: _saveRegistrations,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    _label('Session'),
+                    const SizedBox(height: 8),
+                    _panel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Combien de temps un utilisateur reste connecté (refresh token).',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _sessionDaysController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Durée de session (jours)',
+                              hintText: '1 – 365',
+                              isDense: true,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            onPressed: _saving ? null : _saveSession,
+                            child: const Text('Enregistrer'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    _label('Auth providers'),
+                    const SizedBox(height: 8),
+                    _providerCard(
+                      id: 'discord',
+                      title: 'Discord',
+                      info: _settings!.discord,
+                      help:
+                          'Discord Developer Portal → OAuth2.\n'
+                          'Redirect URI : <url-serveur>/api/auth/discord/callback\n'
+                          'Côté Flutter : Custom Tab + deep link (pas Chrome plein écran).',
+                      fields: [
+                        _field(_discordId, 'Client ID'),
+                        _field(
+                          _discordSecret,
+                          'Client Secret',
+                          obscure: true,
+                          hint: _settings!.discord.secretSet ? '•••••• (vide = ne pas changer)' : null,
+                        ),
                       ],
                     ),
-                    Text(
-                      'Pris en compte immédiatement, sans redémarrage.',
-                      style: Theme.of(context).textTheme.bodySmall,
+                    const SizedBox(height: 10),
+                    _providerCard(
+                      id: 'google',
+                      title: 'Google',
+                      info: _settings!.google,
+                      help:
+                          'Google Cloud Console → Credentials (OAuth client, type Web pour le secret serveur).\n'
+                          'Côté Flutter : package google_sign_in → idToken → '
+                          'tb.auth.signInWithIdToken(OAuthProvider.google, idToken: …).\n'
+                          'Pas de redirect navigateur.',
+                      fields: [
+                        _field(_googleId, 'Client ID'),
+                        _field(
+                          _googleSecret,
+                          'Client Secret',
+                          obscure: true,
+                          hint: _settings!.google.secretSet ? '•••••• (vide = ne pas changer)' : null,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 20),
-                    if (_error != null) ...[
-                      Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                      const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: OutlinedButton(onPressed: _load, child: const Text('Réessayer')),
+                    const SizedBox(height: 10),
+                    _providerCard(
+                      id: 'apple',
+                      title: 'Apple',
+                      info: _settings!.apple,
+                      help:
+                          'Apple Developer → Identifiers (Services ID) + Keys (Sign in with Apple).\n'
+                          'Côté Flutter : sign_in_with_apple → identityToken → '
+                          'tb.auth.signInWithIdToken(OAuthProvider.apple, idToken: …).',
+                      fields: [
+                        _field(_appleId, 'Services ID (Client ID)'),
+                        _field(_appleTeam, 'Team ID'),
+                        _field(_appleKey, 'Key ID'),
+                        _field(
+                          _applePrivate,
+                          'Private Key (.p8)',
+                          obscure: true,
+                          maxLines: 4,
+                          hint: _settings!.apple.privateKeySet ? '•••••• (vide = ne pas changer)' : null,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    _providerCard(
+                      id: 'microsoft',
+                      title: 'Microsoft',
+                      info: _settings!.microsoft,
+                      help:
+                          'Azure Portal → App registrations → Certificates & secrets.\n'
+                          'Redirect URI : <url-serveur>/api/auth/microsoft/callback\n'
+                          'Côté Flutter : même flow que Discord (authorizeUrl + deep link).',
+                      fields: [
+                        _field(_microsoftId, 'Application (client) ID'),
+                        _field(
+                          _microsoftSecret,
+                          'Client Secret',
+                          obscure: true,
+                          hint: _settings!.microsoft.secretSet ? '•••••• (vide = ne pas changer)' : null,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+                    _label('Code client'),
+                    const SizedBox(height: 8),
+                    _panel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Dans le pubspec de ton app Flutter (hors TinyBase) :',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                            decoration: BoxDecoration(
+                              color: AppColors.bgElevated,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.borderSubtle),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: SelectableText(
+                                    _kClientPubspecSnippet,
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                          fontFamily: 'monospace',
+                                          color: AppColors.accent,
+                                          height: 1.45,
+                                        ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Copier',
+                                  icon: const Icon(Icons.copy, size: 18),
+                                  color: AppColors.textMuted,
+                                  onPressed: () {
+                                    Clipboard.setData(
+                                      const ClipboardData(text: _kClientPubspecSnippet),
+                                    );
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Dépendance copiée')),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Puis baseUrl = l’URL de ton instance Railway. '
+                            'Préfère un tag (ex. v0.1.0) plutôt que main en prod.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: AppColors.textFaint,
+                                ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Génère un AuthProvider qui wrap tinybase_client.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton.tonalIcon(
+                            onPressed: _generatingAuth ? null : _generateAuthCode,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.accentMuted,
+                              foregroundColor: AppColors.accent,
+                            ),
+                            icon: _generatingAuth
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.code, size: 18),
+                            label: const Text('Générer le code Auth'),
+                          ),
+                        ],
                       ),
-                    ] else if (_settings != null) ...[
-                      _buildRegistrationsCard(),
-                      const SizedBox(height: 16),
-                      _buildDiscordCard(),
-                    ],
+                    ),
                   ],
-                ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRegistrationsCard() {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: SwitchListTile(
-        title: const Text('Inscriptions ouvertes'),
-        subtitle: const Text('Autorise la création de nouveaux comptes (email/mot de passe ou Discord).'),
-        value: _registrationsOpen,
-        onChanged: _saveRegistrations,
-      ),
-    );
-  }
-
-  Widget _buildDiscordCard() {
-    final enabled = _settings?.discordEnabled ?? false;
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text('Connexion Discord', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(width: 12),
-                Chip(
-                  label: Text(enabled ? 'activé' : 'désactivé'),
-                  backgroundColor: enabled ? Colors.green.withValues(alpha: 0.15) : null,
-                  labelStyle: enabled ? const TextStyle(color: Colors.green) : null,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Depuis ton application dans le Discord Developer Portal (OAuth2). '
-              'Redirect URI à déclarer côté Discord : <url-du-serveur>/api/auth/discord/callback.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _clientIdController,
-              decoration: const InputDecoration(labelText: 'Client ID', border: OutlineInputBorder(), isDense: true),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _clientSecretController,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: 'Client Secret',
-                hintText: (_settings?.discordSecretSet ?? false) ? '•••••• (laisser vide pour ne pas le changer)' : null,
-                border: const OutlineInputBorder(),
-                isDense: true,
+                ],
               ),
             ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _label(String title) {
+    return Text(
+      title.toUpperCase(),
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: AppColors.textFaint,
+            letterSpacing: 1.1,
+            fontWeight: FontWeight.w600,
+          ),
+    );
+  }
+
+  Widget _panel({required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _field(
+    TextEditingController c,
+    String label, {
+    bool obscure = false,
+    String? hint,
+    int maxLines = 1,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextField(
+        controller: c,
+        obscureText: obscure && maxLines == 1,
+        maxLines: maxLines,
+        decoration: InputDecoration(labelText: label, hintText: hint, isDense: true),
+      ),
+    );
+  }
+
+  Widget _providerCard({
+    required String id,
+    required String title,
+    required OAuthProviderInfo info,
+    required String help,
+    required List<Widget> fields,
+  }) {
+    final open = _expanded.contains(id) || info.enabled;
+    return _panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(color: AppColors.text)),
+                    const SizedBox(width: 10),
+                    StatusPill(
+                      label: info.enabled ? 'activé' : 'désactivé',
+                      color: info.enabled ? AppColors.accent : AppColors.textFaint,
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: open,
+                onChanged: (v) {
+                  setState(() {
+                    if (v) {
+                      _expanded.add(id);
+                    } else if (info.enabled) {
+                      _disableProvider(id);
+                    } else {
+                      _expanded.remove(id);
+                    }
+                  });
+                },
+              ),
+            ],
+          ),
+          if (open) ...[
+            const SizedBox(height: 8),
+            Text(help, style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 12),
+            ...fields,
             Row(
               children: [
                 FilledButton(
-                  onPressed: _saving ? null : _saveDiscord,
-                  child: _saving
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Text('Enregistrer'),
+                  onPressed: _saving ? null : () => _saveProvider(id),
+                  child: const Text('Enregistrer'),
                 ),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: _saving ? null : _disableDiscord,
-                  style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
-                  child: const Text('Désactiver Discord'),
-                ),
+                if (info.enabled) ...[
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    onPressed: _saving ? null : () => _disableProvider(id),
+                    style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+                    child: const Text('Désactiver'),
+                  ),
+                ],
               ],
             ),
           ],
-        ),
+        ],
       ),
     );
   }

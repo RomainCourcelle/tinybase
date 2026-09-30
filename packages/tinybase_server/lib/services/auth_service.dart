@@ -43,6 +43,7 @@ class AuthService {
   AuthService(this.db, this.settings);
 
   Future<AuthSession> register(String email, String password) async {
+    final normalizedEmail = _normalizeEmail(email);
     final appSettings = await settings.get();
     if (!appSettings.registrationsOpen) {
       throw AuthException('Les inscriptions sont actuellement fermées');
@@ -50,7 +51,7 @@ class AuthService {
     if (password.length < 8) {
       throw AuthException('Le mot de passe doit faire au moins 8 caractères');
     }
-    final existing = await db.getOptional('SELECT id FROM users WHERE email = ?', [email]);
+    final existing = await db.getOptional('SELECT id FROM users WHERE email = ?', [normalizedEmail]);
     if (existing != null) {
       throw AuthException('Un compte existe déjà avec cet email');
     }
@@ -61,14 +62,15 @@ class AuthService {
 
     await db.execute(
       'INSERT INTO users (id, email, password_hash, created, updated) VALUES (?, ?, ?, ?, ?)',
-      [id, email, hash, now, now],
+      [id, normalizedEmail, hash, now, now],
     );
 
-    return _issueSession(id, email);
+    return await _issueSession(id, normalizedEmail);
   }
 
   Future<AuthSession> login(String email, String password) async {
-    final row = await db.getOptional('SELECT * FROM users WHERE email = ?', [email]);
+    final normalizedEmail = _normalizeEmail(email);
+    final row = await db.getOptional('SELECT * FROM users WHERE email = ?', [normalizedEmail]);
     if (row == null) throw AuthException('Email ou mot de passe incorrect');
 
     final hash = row['password_hash'] as String;
@@ -79,37 +81,45 @@ class AuthService {
       throw AuthException('Ce compte a été désactivé');
     }
 
-    return _issueSession(row['id'] as String, row['email'] as String);
+    return await _issueSession(row['id'] as String, row['email'] as String);
   }
 
-  /// Point d'entrée appelé par la route de callback OAuth2 Discord (voir
-  /// discord_auth_routes.dart) une fois le profil Discord récupéré.
-  /// - Un `discord_id` déjà connu => connexion (jamais bloquée par
-  ///   [AppSettings.registrationsOpen], même fermé : un compte existant
-  ///   reste accessible).
-  /// - Sinon : email Discord déjà présent (compte créé au départ par
-  ///   email/mot de passe) => on relie ce compte au lieu d'échouer sur la
-  ///   contrainte UNIQUE(email).
-  /// - Sinon : nouveau compte — soumis à [AppSettings.registrationsOpen]
-  ///   comme une inscription classique.
-  Future<AuthSession> loginOrRegisterWithDiscord({required String discordId, String? email}) async {
-    final existingByDiscord = await db.getOptional('SELECT * FROM users WHERE discord_id = ?', [discordId]);
-    if (existingByDiscord != null) {
-      if ((existingByDiscord['disabled'] as int? ?? 0) == 1) {
-        throw AuthException('Ce compte a été désactivé');
-      }
-      return _issueSession(existingByDiscord['id'] as String, existingByDiscord['email'] as String);
+  /// Connexion / liaison OAuth générique (discord, google, apple, microsoft).
+  /// [providerColumn] = nom de colonne SQLite (`discord_id`, `google_id`, …).
+  Future<AuthSession> loginOrRegisterWithOAuth({
+    required String providerColumn,
+    required String providerUserId,
+    String? email,
+  }) async {
+    final allowed = {'discord_id', 'google_id', 'apple_id', 'microsoft_id'};
+    if (!allowed.contains(providerColumn)) {
+      throw AuthException('Provider OAuth inconnu');
     }
 
-    final effectiveEmail = (email != null && email.isNotEmpty) ? email : '$discordId@discord.local';
+    final existingByProvider =
+        await db.getOptional('SELECT * FROM users WHERE "$providerColumn" = ?', [providerUserId]);
+    if (existingByProvider != null) {
+      if ((existingByProvider['disabled'] as int? ?? 0) == 1) {
+        throw AuthException('Ce compte a été désactivé');
+      }
+      return await _issueSession(existingByProvider['id'] as String, existingByProvider['email'] as String);
+    }
 
-    final existingByEmail = await db.getOptional('SELECT id, email, disabled FROM users WHERE email = ?', [effectiveEmail]);
+    final effectiveEmail = (email != null && email.isNotEmpty)
+        ? _normalizeEmail(email)
+        : '$providerUserId@${providerColumn.replaceAll('_id', '')}.local';
+
+    final existingByEmail =
+        await db.getOptional('SELECT id, email, disabled FROM users WHERE email = ?', [effectiveEmail]);
     if (existingByEmail != null) {
       if ((existingByEmail['disabled'] as int? ?? 0) == 1) {
         throw AuthException('Ce compte a été désactivé');
       }
-      await db.execute('UPDATE users SET discord_id = ? WHERE id = ?', [discordId, existingByEmail['id']]);
-      return _issueSession(existingByEmail['id'] as String, existingByEmail['email'] as String);
+      await db.execute('UPDATE users SET "$providerColumn" = ? WHERE id = ?', [
+        providerUserId,
+        existingByEmail['id'],
+      ]);
+      return await _issueSession(existingByEmail['id'] as String, existingByEmail['email'] as String);
     }
 
     final appSettings = await settings.get();
@@ -119,19 +129,18 @@ class AuthService {
 
     final id = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
-    // Un compte créé via Discord n'a pas de mot de passe — la colonne
-    // reste NOT NULL (pas touché au schéma existant pour rester simple),
-    // donc on y met un hash bcrypt d'une valeur aléatoire jamais
-    // communiquée : personne ne peut jamais se connecter avec, par
-    // construction, c'est un simple "remplissage" de la contrainte.
     final placeholderHash = BCrypt.hashpw(_uuid.v4(), BCrypt.gensalt());
 
     await db.execute(
-      'INSERT INTO users (id, email, password_hash, discord_id, created, updated) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, effectiveEmail, placeholderHash, discordId, now, now],
+      'INSERT INTO users (id, email, password_hash, "$providerColumn", created, updated) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, effectiveEmail, placeholderHash, providerUserId, now, now],
     );
 
-    return _issueSession(id, effectiveEmail);
+    return await _issueSession(id, effectiveEmail);
+  }
+
+  Future<AuthSession> loginOrRegisterWithDiscord({required String discordId, String? email}) {
+    return loginOrRegisterWithOAuth(providerColumn: 'discord_id', providerUserId: discordId, email: email);
   }
 
   Future<AuthSession> refresh(String refreshToken) async {
@@ -153,7 +162,7 @@ class AuthService {
       throw AuthException('Ce compte a été désactivé');
     }
 
-    return _issueSession(row['id'] as String, row['email'] as String);
+    return await _issueSession(row['id'] as String, row['email'] as String);
   }
 
   /// Utilisé par `GET /api/auth/me` (voir auth_routes.dart) — le code
@@ -205,11 +214,15 @@ class AuthService {
     return {'id': row['id'], 'email': row['email'], 'disabled': disabled};
   }
 
-  AuthSession _issueSession(String userId, String email) {
+  Future<AuthSession> _issueSession(String userId, String email) async {
+    final appSettings = await settings.get();
     final access = JWT({'sub': userId, 'type': 'access'})
-        .sign(SecretKey(Config.jwtSecret), expiresIn: Config.accessTokenTtl);
+        .sign(SecretKey(Config.jwtSecret), expiresIn: appSettings.accessTokenTtl);
     final refresh = JWT({'sub': userId, 'type': 'refresh'})
-        .sign(SecretKey(Config.jwtSecret), expiresIn: Config.refreshTokenTtl);
+        .sign(SecretKey(Config.jwtSecret), expiresIn: appSettings.refreshTokenTtl);
     return AuthSession(userId: userId, email: email, accessToken: access, refreshToken: refresh);
   }
+
+  /// Trim + lowercase : `Alice@X.com` et `alice@x.com` = même compte.
+  static String _normalizeEmail(String email) => email.trim().toLowerCase();
 }

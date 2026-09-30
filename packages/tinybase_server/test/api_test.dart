@@ -16,6 +16,7 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import 'package:tinybase/api/app.dart';
+import 'package:tinybase/core/config.dart';
 import 'package:tinybase/db/database.dart';
 
 /// Petit client de test par-dessus le Handler shelf — évite de reconstruire
@@ -63,6 +64,9 @@ void main() {
     // Base isolée par run de test — jamais la vraie base de dev (voir le
     // paramètre `path` ajouté à Database.init() spécifiquement pour ça).
     tempDir = Directory.systemTemp.createTempSync('tinybase_test_');
+    // Secret JWT figé pour les tests (évite d'écrire `.jwt_secret` et
+    // garantit un secret déterministe).
+    await Config.init(jwtSecretOverride: 'test-jwt-secret-16c');
     await Database.init(path: '${tempDir.path}/test.db');
     client = _TestClient(buildApp());
   });
@@ -443,6 +447,91 @@ void main() {
         json: {'email': 'dave@example.com', 'password': 'password1'},
       );
       expect(loginAfterUnbanStatus, 200);
+    });
+
+    test('password_hash jamais exposé via l\'API records (même à l\'admin)', () async {
+      final (loginStatus, loginBody) = await client.post(
+        '/api/auth/login',
+        json: {'email': 'alice@example.com', 'password': 'password1'},
+      );
+      expect(loginStatus, 200);
+      final aliceId = loginBody['user']['id'] as String;
+      final aliceToken = loginBody['accessToken'] as String;
+
+      // Self-view : pas de hash.
+      final (viewStatus, viewBody) = await client.get(
+        '/api/collections/users/records/$aliceId',
+        token: aliceToken,
+      );
+      expect(viewStatus, 200);
+      expect(viewBody.containsKey('password_hash'), isFalse);
+      expect(viewBody['email'], 'alice@example.com');
+
+      // Admin list : pas de hash non plus.
+      final (listStatus, listBody) = await client.get(
+        '/api/collections/users/records',
+        token: _sharedAdminToken,
+      );
+      expect(listStatus, 200);
+      final items = listBody['items'] as List;
+      expect(items, isNotEmpty);
+      for (final item in items) {
+        expect((item as Map).containsKey('password_hash'), isFalse);
+      }
+    });
+
+    test('listRule users = self-only : bob ne liste pas alice', () async {
+      final (aliceLogin, aliceBody) = await client.post(
+        '/api/auth/login',
+        json: {'email': 'alice@example.com', 'password': 'password1'},
+      );
+      expect(aliceLogin, 200);
+      final aliceId = aliceBody['user']['id'] as String;
+
+      final (bobLogin, bobBody) = await client.post(
+        '/api/auth/login',
+        json: {'email': 'bob@example.com', 'password': 'password1'},
+      );
+      expect(bobLogin, 200);
+      final bobToken = bobBody['accessToken'] as String;
+      final bobId = bobBody['user']['id'] as String;
+
+      final (status, body) = await client.get('/api/collections/users/records', token: bobToken);
+      expect(status, 200);
+      final ids = (body['items'] as List).map((r) => r['id']).toList();
+      expect(ids, contains(bobId));
+      expect(ids, isNot(contains(aliceId)));
+    });
+
+    test('register/login normalisent la casse de l\'email', () async {
+      final (regStatus, _) = await client.post(
+        '/api/auth/register',
+        json: {'email': 'Eve@Example.COM', 'password': 'password1'},
+      );
+      expect(regStatus, 201);
+
+      final (dupStatus, _) = await client.post(
+        '/api/auth/register',
+        json: {'email': 'eve@example.com', 'password': 'autremdp1'},
+      );
+      expect(dupStatus, 400);
+
+      final (loginStatus, loginBody) = await client.post(
+        '/api/auth/login',
+        json: {'email': 'EVE@example.com', 'password': 'password1'},
+      );
+      expect(loginStatus, 200);
+      expect(loginBody['user']['email'], 'eve@example.com');
+    });
+
+    test('impossible de renommer la collection users', () async {
+      final (status, body) = await client.patch(
+        '/api/admin/collections/users',
+        json: {'name': 'membres'},
+        token: _sharedAdminToken,
+      );
+      expect(status, 400);
+      expect(body['error'].toString().toLowerCase(), contains('users'));
     });
   });
 

@@ -4,3 +4,4 @@ build/
 *.db
 *.db-wal
 *.db-shm
+.jwt_secret

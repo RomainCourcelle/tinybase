@@ -17,6 +17,8 @@ import 'routes/admin_auth_routes.dart';
 import 'routes/auth_routes.dart';
 import 'routes/collections_routes.dart';
 import 'routes/discord_auth_routes.dart';
+import 'routes/microsoft_auth_routes.dart';
+import 'routes/native_oauth_routes.dart';
 import 'routes/records_routes.dart';
 import 'routes/settings_routes.dart';
 import 'routes/users_admin_routes.dart';
@@ -30,11 +32,17 @@ Handler buildApp() {
 
   final root = Router();
 
-  // IMPORTANT : mount() capture TOUT le préfixe donné (voir shelf_router —
-  // un mount est un "catch-all" pour son préfixe). Le mount le plus
-  // spécifique doit donc être enregistré AVANT le plus général, sinon il
-  // n'est jamais atteint : `/api/auth/discord/*` avant `/api/auth/*`.
+  // Mounts OAuth les plus spécifiques AVANT `/api/auth`.
   root.mount('/api/auth/discord', buildDiscordAuthRoutes(authService, settingsService).call);
+  root.mount('/api/auth/microsoft', buildMicrosoftAuthRoutes(authService, settingsService).call);
+  root.mount(
+    '/api/auth/google',
+    buildNativeOAuthRoutes(provider: 'google', authService: authService, settingsService: settingsService).call,
+  );
+  root.mount(
+    '/api/auth/apple',
+    buildNativeOAuthRoutes(provider: 'apple', authService: authService, settingsService: settingsService).call,
+  );
   root.mount('/api/auth', buildAuthRoutes(authService).call);
 
   // PUBLIQUE (pas de adminPipeline) — voir admin_auth_routes.dart : c'est

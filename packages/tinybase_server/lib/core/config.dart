@@ -1,8 +1,14 @@
 import 'dart:io';
+import 'dart:math';
 
 /// Configuration lue depuis les variables d'environnement, avec des valeurs
-/// par défaut pratiques pour le dev local (à surcharger en prod, notamment
-/// [jwtSecret] et [adminToken] — voir le README).
+/// par défaut pratiques pour le dev local.
+///
+/// [jwtSecret] est résolu au démarrage via [init] :
+/// 1. variable d'env `JWT_SECRET` si définie ;
+/// 2. sinon fichier `.jwt_secret` à côté de la DB (généré automatiquement
+///    au premier démarrage) — comme PocketBase stocke ses clés dans
+///    `pb_data`, pas besoin d'y penser en local / sur un volume unique.
 class Config {
   Config._();
 
@@ -24,11 +30,85 @@ class Config {
     return int.tryParse(raw) ?? 8090;
   }
 
-  /// Secret utilisé pour signer les JWT (access + refresh). À définir
-  /// absolument en prod via la variable d'env JWT_SECRET : la valeur par
-  /// défaut n'est là que pour ne pas planter en dev local.
-  static String get jwtSecret => _env('JWT_SECRET') ?? 'dev-insecure-secret-change-me';
+  /// Secret utilisé pour signer les JWT (access + refresh + admin).
+  /// Doit être initialisé via [init] avant tout usage.
+  static late final String jwtSecret;
 
+  static bool _initialized = false;
+
+  /// Résout [jwtSecret] (env, override de test, ou fichier auto-généré).
+  /// Idempotent. [dbPathForSecret] permet aux tests d'aligner le fichier
+  /// secret sur leur DB temporaire (sinon on utiliserait le cwd du process).
+  static Future<void> init({String? dbPathForSecret, String? jwtSecretOverride}) async {
+    if (_initialized) return;
+
+    if (jwtSecretOverride != null) {
+      if (jwtSecretOverride.length < 16) {
+        throw StateError('jwtSecretOverride trop court (minimum 16 caractères)');
+      }
+      jwtSecret = jwtSecretOverride;
+      _initialized = true;
+      return;
+    }
+
+    final fromEnv = _env('JWT_SECRET');
+    if (fromEnv != null) {
+      if (fromEnv.length < 16) {
+        throw StateError(
+          'JWT_SECRET trop court (${fromEnv.length} caractères, minimum 16). '
+          'Génère-en un plus long, ex. : openssl rand -hex 32',
+        );
+      }
+      jwtSecret = fromEnv;
+      _initialized = true;
+      return;
+    }
+
+    final secretFile = _jwtSecretFile(dbPathForSecret ?? dbPath);
+    if (await secretFile.exists()) {
+      final stored = (await secretFile.readAsString()).trim();
+      if (stored.length < 16) {
+        throw StateError(
+          'Fichier ${secretFile.path} contient un secret trop court. '
+          'Supprime-le pour en régénérer un, ou définis JWT_SECRET.',
+        );
+      }
+      jwtSecret = stored;
+      _initialized = true;
+      return;
+    }
+
+    final generated = _generateSecret();
+    await secretFile.parent.create(recursive: true);
+    await secretFile.writeAsString('$generated\n');
+    // ignore: avoid_print
+    print(
+      'JWT_SECRET non défini — secret généré et persisté dans ${secretFile.path}\n'
+      '  (pour plusieurs instances derrière un load-balancer, définis plutôt '
+      'JWT_SECRET dans l\'environnement pour qu\'elles partagent la même clé)',
+    );
+    jwtSecret = generated;
+    _initialized = true;
+  }
+
+  /// Fichier `.jwt_secret` dans le même dossier que la base SQLite — suit
+  /// donc le volume persisté en prod (Railway etc.) sans config supplémentaire.
+  static File _jwtSecretFile(String path) {
+    final dbFile = File(path);
+    final dir = (dbFile.parent.path == '.' || dbFile.parent.path.isEmpty)
+        ? Directory.current
+        : dbFile.parent;
+    return File('${dir.path}${Platform.pathSeparator}.jwt_secret');
+  }
+
+  static String _generateSecret() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(32, (_) => rng.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  /// Fallbacks historiques — les TTL utilisateurs viennent de `_settings`
+  /// (éditables dans l'admin). Seul [adminTokenTtl] reste ici.
   static Duration get accessTokenTtl => const Duration(hours: 2);
   static Duration get refreshTokenTtl => const Duration(days: 30);
 

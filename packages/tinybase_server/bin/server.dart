@@ -7,6 +7,7 @@ import 'package:tinybase/core/config.dart';
 import 'package:tinybase/db/database.dart';
 
 Future<void> main() async {
+  await Config.init();
   await Database.init();
 
   final handler = buildApp();

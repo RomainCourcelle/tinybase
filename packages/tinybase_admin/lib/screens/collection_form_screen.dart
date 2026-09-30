@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import 'package:tinybase_shared/tinybase_shared.dart';
 import '../providers/collections_provider.dart';
+import '../theme/app_colors.dart';
+import '../widgets/ui_bits.dart';
 
 /// Un champ en cours d'édition dans le formulaire. [originalName] est null
 /// pour un champ tout juste ajouté (donc jamais vu par le serveur) ; sinon
@@ -268,7 +270,7 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Supprimer'),
           ),
@@ -284,147 +286,162 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextButton.icon(
-                onPressed: _saving ? null : widget.onCancel,
-                icon: const Icon(Icons.arrow_back, size: 18),
-                label: const Text('Collections'),
-                style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PageHeader(
+          title: _isEditing ? widget.existing!.name : 'Nouvelle collection',
+          subtitle: _isEditing ? 'Schéma et règles d\'accès' : 'Définis le nom, les champs et les règles',
+          actions: [
+            TextButton.icon(
+              onPressed: _saving ? null : widget.onCancel,
+              icon: const Icon(Icons.arrow_back, size: 18),
+              label: const Text('Retour'),
+            ),
+            if (_isEditing && widget.onViewRecords != null)
+              FilledButton.tonalIcon(
+                onPressed: widget.onViewRecords,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.accentMuted,
+                  foregroundColor: AppColors.accent,
+                ),
+                icon: const Icon(Icons.table_rows_outlined, size: 18),
+                label: const Text('Données'),
               ),
-              const SizedBox(height: 8),
-              Row(
+          ],
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Text(
-                      _isEditing ? widget.existing!.name : 'Nouvelle collection',
-                      style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
+                  if (!_isEditing) ...[
+                    TextField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(labelText: 'Nom de la collection'),
                     ),
-                  ),
-                  if (_isEditing && widget.onViewRecords != null) ...[
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
-                      onPressed: widget.onViewRecords,
-                      icon: const Icon(Icons.table_rows_outlined, size: 18),
-                      label: const Text('Voir / éditer les données'),
-                    ),
+                    const SizedBox(height: 24),
                   ],
-                ],
-              ),
-              const SizedBox(height: 20),
-              if (!_isEditing) ...[
-                TextField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(labelText: 'Nom de la collection', border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 24),
-              ],
-              _sectionCard(
-                title: 'Champs',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_fields.isNotEmpty) ..._fields.map(_buildFieldRow),
-                    if (_fields.isNotEmpty) const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(onPressed: _addField, icon: const Icon(Icons.add), label: const Text('Ajouter un champ')),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              _sectionCard(
-                title: 'Règles d\'accès',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Vide = accès public, même sans connexion. Coche « admin seulement » pour réserver '
-                      'l\'action aux administrateurs. Sinon, écris une expression, par exemple :',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'owner = @request.auth.id',
-                        style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                  _sectionCard(
+                    title: 'Champs',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _templateChip('Modèle : données privées par utilisateur', _RuleTemplate.ownerPrivate),
-                        _templateChip('Modèle : lecture publique', _RuleTemplate.publicRead),
-                        _templateChip('Modèle : admin seulement', _RuleTemplate.adminOnly),
+                        if (_fields.isNotEmpty) ..._fields.map(_buildFieldRow),
+                        if (_fields.isNotEmpty) const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _addField,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Ajouter un champ'),
+                          ),
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    _ruleField('list (lecture liste)', _listRule),
-                    _ruleField('view (lecture détail)', _viewRule),
-                    _ruleField('create', _createRule),
-                    _ruleField('update', _updateRule),
-                    _ruleField('delete', _deleteRule, showDivider: false),
-                  ],
-                ),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 16),
-                Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
-              ],
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  FilledButton(
-                    onPressed: _saving ? null : _save,
-                    child: _saving
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : Text(_isEditing ? 'Enregistrer' : 'Créer la collection'),
                   ),
-                  const SizedBox(width: 12),
-                  OutlinedButton(onPressed: _saving ? null : widget.onCancel, child: const Text('Annuler')),
-                ],
-              ),
-              if (_isEditing) ...[
-                const SizedBox(height: 32),
-                _sectionCard(
-                  title: 'Supprimer la collection',
-                  titleColor: theme.colorScheme.error,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: 20),
+                  _sectionCard(
+                    title: 'Règles d\'accès',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Vide = accès public. « Admin seulement » réserve l\'action aux admins. '
+                          'Sinon une expression, par exemple :',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.bgElevated,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: AppColors.borderSubtle),
+                          ),
+                          child: Text(
+                            '@request.auth.id = owner',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontFamily: 'monospace',
+                              color: AppColors.accent,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _templateChip('Privé par utilisateur', _RuleTemplate.ownerPrivate),
+                            _templateChip('Lecture publique', _RuleTemplate.publicRead),
+                            _templateChip('Admin seulement', _RuleTemplate.adminOnly),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _ruleField('list (lecture liste)', _listRule),
+                        _ruleField('view (lecture détail)', _viewRule),
+                        _ruleField('create', _createRule),
+                        _ruleField('update', _updateRule),
+                        _ruleField('delete', _deleteRule, showDivider: false),
+                      ],
+                    ),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 16),
+                    Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+                  ],
+                  const SizedBox(height: 24),
+                  Row(
                     children: [
-                      Text(
-                        'Cette action est définitive : la collection et tous ses records seront perdus.',
-                        style: theme.textTheme.bodySmall,
+                      FilledButton(
+                        onPressed: _saving ? null : _save,
+                        child: _saving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Text(_isEditing ? 'Enregistrer' : 'Créer la collection'),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(width: 12),
                       OutlinedButton(
-                        onPressed: _saving ? null : _confirmDelete,
-                        style: OutlinedButton.styleFrom(foregroundColor: theme.colorScheme.error),
-                        child: const Text('Supprimer définitivement'),
+                        onPressed: _saving ? null : widget.onCancel,
+                        child: const Text('Annuler'),
                       ),
                     ],
                   ),
-                ),
-              ],
-              const SizedBox(height: 24),
-            ],
+                  if (_isEditing) ...[
+                    const SizedBox(height: 32),
+                    _sectionCard(
+                      title: 'Zone dangereuse',
+                      titleColor: AppColors.danger,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Supprime la collection et tous ses records. Irréversible.',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton(
+                            onPressed: _saving ? null : _confirmDelete,
+                            style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+                            child: const Text('Supprimer définitivement'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -466,7 +483,7 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
           TextField(
             controller: rule.controller,
             enabled: !rule.adminOnly,
-            decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+            decoration: const InputDecoration(isDense: true),
           ),
           Row(
             children: [
@@ -490,13 +507,13 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
                 flex: 3,
                 child: TextField(
                   controller: field.nameController,
-                  decoration: const InputDecoration(labelText: 'Nom', isDense: true, border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Nom', isDense: true),
                 ),
               ),
               const SizedBox(width: 8),
@@ -505,17 +522,23 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
                 child: DropdownButtonFormField<FieldType>(
                   value: field.type,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Type', isDense: true, border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Type', isDense: true),
                   items: FieldType.values.map((t) => DropdownMenuItem(value: t, child: Text(t.label))).toList(),
                   onChanged: (t) => setState(() => field.type = t!),
                 ),
               ),
-              const SizedBox(width: 8),
-              Checkbox(value: field.required, onChanged: (v) => setState(() => field.required = v ?? false)),
+              const SizedBox(width: 4),
+              Checkbox(
+                value: field.required,
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                onChanged: (v) => setState(() => field.required = v ?? false),
+              ),
               const Text('requis', style: TextStyle(fontSize: 12)),
               IconButton(
                 icon: const Icon(Icons.delete_outline),
                 tooltip: 'Supprimer ce champ',
+                visualDensity: VisualDensity.compact,
                 onPressed: () => _removeField(field),
               ),
             ],
@@ -524,7 +547,7 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
             const SizedBox(height: 8),
             TextField(
               controller: field.optionsController,
-              decoration: const InputDecoration(labelText: 'Options (séparées par des virgules)', isDense: true, border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: 'Options (séparées par des virgules)', isDense: true),
             ),
           ],
           if (field.type == FieldType.relation) ...[
@@ -556,7 +579,7 @@ class _RelationTargetPicker extends StatelessWidget {
     return DropdownButtonFormField<String>(
       value: names.contains(value) ? value : null,
       isExpanded: true,
-      decoration: const InputDecoration(labelText: 'Collection cible', isDense: true, border: OutlineInputBorder()),
+      decoration: const InputDecoration(labelText: 'Collection cible', isDense: true),
       items: names.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
       onChanged: onChanged,
       hint: const Text('Choisir une collection'),

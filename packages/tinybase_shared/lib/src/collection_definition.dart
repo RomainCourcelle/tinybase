@@ -7,9 +7,30 @@ enum CollectionType { base, auth }
 /// Noms de colonnes gérés automatiquement par TinyBase — toujours présents,
 /// jamais dans [CollectionDefinition.fields]. Une collection `auth` n'a pas
 /// de colonne `owner` (elle EST la table des utilisateurs) mais a
-/// `email`/`password_hash` en plus.
+/// `email`/`password_hash`/`discord_id`/`disabled` en plus.
 const List<String> kBaseAutoFields = ['id', 'created', 'updated', 'owner'];
-const List<String> kAuthAutoFields = ['id', 'email', 'password_hash', 'disabled', 'created', 'updated'];
+const List<String> kAuthAutoFields = [
+  'id',
+  'email',
+  'password_hash',
+  'discord_id',
+  'disabled',
+  'created',
+  'updated',
+];
+
+/// Champs jamais exposés par l'API records (même à l'admin) — secrets de
+/// stockage, pas des données métier. Voir RecordsService._publicRecord.
+const Set<String> kAuthSecretFields = {'password_hash'};
+
+/// Noms réservés : tables système + collection auth bootstrap. Interdits à
+/// la création / au renommage.
+const Set<String> kReservedCollectionNames = {
+  'users',
+  '_collections',
+  '_admins',
+  '_settings',
+};
 
 /// Un nom de collection ou de champ ne peut contenir que lettres/chiffres/
 /// underscore, et ne peut pas commencer par un chiffre — sécurité (ce sont

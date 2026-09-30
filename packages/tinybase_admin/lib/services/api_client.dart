@@ -4,6 +4,10 @@ import 'package:http/http.dart' as http;
 
 import 'package:tinybase_shared/tinybase_shared.dart';
 
+import 'app_settings.dart';
+
+export 'app_settings.dart';
+
 /// Un fichier Dart généré par la route `/codegen` — voir tinybase_codegen
 /// côté serveur (même forme que `GeneratedFile.toJson()` là-bas).
 class GeneratedFile {
@@ -17,29 +21,7 @@ class GeneratedFile {
       );
 }
 
-/// Réglages globaux de l'instance — voir settings_service.dart côté
-/// serveur. Le secret Discord n'est jamais transmis en clair : seul
-/// [discordSecretSet] dit s'il est configuré.
-class AppSettings {
-  final bool registrationsOpen;
-  final bool discordEnabled;
-  final String? discordClientId;
-  final bool discordSecretSet;
-
-  const AppSettings({
-    required this.registrationsOpen,
-    required this.discordEnabled,
-    required this.discordClientId,
-    required this.discordSecretSet,
-  });
-
-  factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
-        registrationsOpen: json['registrationsOpen'] as bool,
-        discordEnabled: json['discordEnabled'] as bool,
-        discordClientId: json['discordClientId'] as String?,
-        discordSecretSet: json['discordSecretSet'] as bool,
-      );
-}
+/// Réglages globaux — modèles dans app_settings.dart.
 
 class ApiException implements Exception {
   final int statusCode;
@@ -308,12 +290,38 @@ class ApiClient {
     String? discordClientId,
     String? discordClientSecret,
     bool disableDiscord = false,
+    String? googleClientId,
+    String? googleClientSecret,
+    bool disableGoogle = false,
+    String? microsoftClientId,
+    String? microsoftClientSecret,
+    bool disableMicrosoft = false,
+    String? appleClientId,
+    String? appleTeamId,
+    String? appleKeyId,
+    String? applePrivateKey,
+    bool disableApple = false,
+    int? accessTokenTtlHours,
+    int? refreshTokenTtlDays,
   }) {
     final body = <String, dynamic>{};
     if (registrationsOpen != null) body['registrationsOpen'] = registrationsOpen;
     if (discordClientId != null) body['discordClientId'] = discordClientId;
     if (discordClientSecret != null) body['discordClientSecret'] = discordClientSecret;
     if (disableDiscord) body['disableDiscord'] = true;
+    if (googleClientId != null) body['googleClientId'] = googleClientId;
+    if (googleClientSecret != null) body['googleClientSecret'] = googleClientSecret;
+    if (disableGoogle) body['disableGoogle'] = true;
+    if (microsoftClientId != null) body['microsoftClientId'] = microsoftClientId;
+    if (microsoftClientSecret != null) body['microsoftClientSecret'] = microsoftClientSecret;
+    if (disableMicrosoft) body['disableMicrosoft'] = true;
+    if (appleClientId != null) body['appleClientId'] = appleClientId;
+    if (appleTeamId != null) body['appleTeamId'] = appleTeamId;
+    if (appleKeyId != null) body['appleKeyId'] = appleKeyId;
+    if (applePrivateKey != null) body['applePrivateKey'] = applePrivateKey;
+    if (disableApple) body['disableApple'] = true;
+    if (accessTokenTtlHours != null) body['accessTokenTtlHours'] = accessTokenTtlHours;
+    if (refreshTokenTtlDays != null) body['refreshTokenTtlDays'] = refreshTokenTtlDays;
 
     return _handle(
       () => http.patch(_uri('/api/admin/settings'), headers: _headers, body: jsonEncode(body)),

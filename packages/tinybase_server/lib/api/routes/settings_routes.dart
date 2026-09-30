@@ -5,8 +5,6 @@ import 'package:tinybase_codegen/tinybase_codegen.dart';
 import '../../services/settings_service.dart';
 import '../json_response.dart';
 
-/// Réglages globaux de l'instance — protégées par [adminOnlyMiddleware]
-/// (voir app.dart), comme le reste de `/api/admin/*`.
 Router buildSettingsRoutes(SettingsService settingsService) {
   final router = Router();
 
@@ -19,23 +17,28 @@ Router buildSettingsRoutes(SettingsService settingsService) {
     }
   });
 
-  /// Body attendu (tous les champs optionnels) :
-  /// {
-  ///   "registrationsOpen": true|false,
-  ///   "discordClientId": "..."?,       // "" pour effacer explicitement
-  ///   "discordClientSecret": "..."?,   // laisser vide = ne pas changer
-  ///   "disableDiscord": true?          // efface id ET secret d'un coup
-  /// }
   router.patch('/', (Request request) async {
     try {
       final body = await request.readJson();
-      final disable = body['disableDiscord'] == true;
 
       final settings = await settingsService.update(
         registrationsOpen: body['registrationsOpen'] as bool?,
+        accessTokenTtlHours: (body['accessTokenTtlHours'] as num?)?.toInt(),
+        refreshTokenTtlDays: (body['refreshTokenTtlDays'] as num?)?.toInt(),
         discordClientId: body['discordClientId'] as String?,
         discordClientSecret: body['discordClientSecret'] as String?,
-        disableDiscord: disable,
+        disableDiscord: body['disableDiscord'] == true,
+        googleClientId: body['googleClientId'] as String?,
+        googleClientSecret: body['googleClientSecret'] as String?,
+        disableGoogle: body['disableGoogle'] == true,
+        microsoftClientId: body['microsoftClientId'] as String?,
+        microsoftClientSecret: body['microsoftClientSecret'] as String?,
+        disableMicrosoft: body['disableMicrosoft'] == true,
+        appleClientId: body['appleClientId'] as String?,
+        appleTeamId: body['appleTeamId'] as String?,
+        appleKeyId: body['appleKeyId'] as String?,
+        applePrivateKey: body['applePrivateKey'] as String?,
+        disableApple: body['disableApple'] == true,
       );
       return jsonResponse(settings.toJson());
     } catch (e) {
@@ -43,17 +46,15 @@ Router buildSettingsRoutes(SettingsService settingsService) {
     }
   });
 
-  /// Code d'authentification (modèle + repository + provider) pour une app
-  /// cliente qui ne passe pas par nexus_code_launcher — voir
-  /// AuthCodegenService. `includeDiscord` suit AppSettings.discordEnabled :
-  /// pas d'intérêt à générer des méthodes qui appelleraient des routes
-  /// Discord désactivées côté serveur (voir discord_auth_routes.dart).
   router.get('/codegen', (Request request) async {
     try {
       final appSettings = await settingsService.get();
-      final files = AuthCodegenService.generate(includeDiscord: appSettings.discordEnabled)
-          .map((f) => f.toJson())
-          .toList();
+      final files = AuthCodegenService.generate(
+        includeDiscord: appSettings.discord.enabled,
+        includeGoogle: appSettings.google.enabled,
+        includeApple: appSettings.apple.enabled,
+        includeMicrosoft: appSettings.microsoft.enabled,
+      ).map((f) => f.toJson()).toList();
       return jsonResponse({'files': files});
     } catch (e) {
       return errorResponse(e);

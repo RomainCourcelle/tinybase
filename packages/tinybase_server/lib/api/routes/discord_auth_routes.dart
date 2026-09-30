@@ -28,6 +28,9 @@ import '../json_response.dart';
 ///    correspondant (voir AuthService.loginOrRegisterWithDiscord),
 ///    puis redirige vers le `target` avec `accessToken`/`refreshToken` en
 ///    query — l'app cliente les récupère depuis son deep link handler.
+///
+/// Sécurité `target` : allowlist stricte (deep-link custom OU http(s)
+/// localhost) pour bloquer l'open-redirect qui volerait les tokens.
 Router buildDiscordAuthRoutes(AuthService authService, SettingsService settingsService) {
   final router = Router();
 
@@ -49,6 +52,13 @@ Router buildDiscordAuthRoutes(AuthService authService, SettingsService settingsS
       final target = request.url.queryParameters['target'];
       if (target == null || target.isEmpty) {
         return jsonResponse({'error': '"target" requis (deep link de retour vers ton app)'}, status: 400);
+      }
+      if (!isAllowedOAuthTarget(target)) {
+        return jsonResponse({
+          'error':
+              '"target" non autorisé : deep-link custom (ex. myapp://callback) '
+              'ou http(s)://localhost uniquement',
+        }, status: 400);
       }
 
       final state = base64Url.encode(utf8.encode(target));
@@ -87,6 +97,11 @@ Router buildDiscordAuthRoutes(AuthService authService, SettingsService settingsS
       } catch (_) {
         return jsonResponse({'error': '"state" invalide'}, status: 400);
       }
+      // Re-valider au callback : le `state` pourrait être forgé hors de
+      // /authorize (même si Discord le renvoie tel quel).
+      if (!isAllowedOAuthTarget(target)) {
+        return jsonResponse({'error': '"target" non autorisé'}, status: 400);
+      }
 
       final clientSecret = await settingsService.getDiscordClientSecret();
       if (clientSecret == null || clientSecret.isEmpty) {
@@ -124,7 +139,9 @@ Router buildDiscordAuthRoutes(AuthService authService, SettingsService settingsS
       }
       final profile = jsonDecode(profileResponse.body) as Map<String, dynamic>;
       final discordId = profile['id'] as String;
-      final discordEmail = profile['email'] as String?;
+      // Ne lier / créer via email que si Discord le marque `verified` —
+      // sinon un email non vérifié pourrait s'accrocher à un compte existant.
+      final discordEmail = (profile['verified'] == true) ? profile['email'] as String? : null;
 
       final session = await authService.loginOrRegisterWithDiscord(discordId: discordId, email: discordEmail);
 
@@ -140,4 +157,25 @@ Router buildDiscordAuthRoutes(AuthService authService, SettingsService settingsS
   });
 
   return router;
+}
+
+/// Deep-links custom (`myapp://…`) OK ; `http(s)` uniquement vers localhost.
+/// Refuse `javascript:`, `data:`, et toute URL http(s) vers un host distant
+/// (open redirect → vol de tokens).
+bool isAllowedOAuthTarget(String target) {
+  final uri = Uri.tryParse(target);
+  if (uri == null || !uri.hasScheme || uri.scheme.isEmpty) return false;
+
+  final scheme = uri.scheme.toLowerCase();
+  const blocked = {'javascript', 'data', 'file', 'vbscript', 'blob'};
+  if (blocked.contains(scheme)) return false;
+
+  if (scheme == 'http' || scheme == 'https') {
+    final host = uri.host.toLowerCase();
+    return host == 'localhost' || host == '127.0.0.1' || host == '::1';
+  }
+
+  // Schéma custom : exige au moins un "host" ou un path (myapp://callback
+  // ou myapp:/callback). Un schéma seul (`evil:`) est refusé.
+  return uri.host.isNotEmpty || uri.path.isNotEmpty;
 }

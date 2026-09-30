@@ -6,6 +6,8 @@ import '../providers/collections_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/records_provider.dart';
 import '../services/api_client.dart';
+import '../theme/app_colors.dart';
+import '../widgets/ui_bits.dart';
 import 'codegen_dialog.dart';
 import 'collection_form_screen.dart';
 import 'records_screen.dart';
@@ -24,10 +26,7 @@ class HomeShell extends StatelessWidget {
   }
 }
 
-/// Ce que la zone centrale affiche à un instant donné — les données
-/// (records) et la fiche schéma (champs + règles) sont deux vues bien
-/// distinctes (façon NexusBase), on ne peut être que dans l'une des trois.
-enum _MainPane { empty, records, collectionForm }
+enum _MainPane { empty, records, collectionForm, settings }
 
 class _HomeShellBody extends StatefulWidget {
   const _HomeShellBody();
@@ -62,6 +61,13 @@ class _HomeShellBodyState extends State<_HomeShellBody> {
     });
   }
 
+  void _openSettings() {
+    setState(() {
+      _pane = _MainPane.settings;
+      _editingCollection = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final collectionsProvider = context.watch<CollectionsProvider>();
@@ -70,90 +76,18 @@ class _HomeShellBodyState extends State<_HomeShellBody> {
     return Scaffold(
       body: Row(
         children: [
-          SizedBox(
-            width: 260,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 20, 8, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Collections',
-                          style: Theme.of(context).textTheme.titleMedium,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      _CompactIconButton(
-                        tooltip: 'Générer le code d\'authentification',
-                        icon: Icons.vpn_key_outlined,
-                        onPressed: () => _generateAuthCode(context, collectionsProvider),
-                      ),
-                      _CompactIconButton(
-                        tooltip: 'Réglages',
-                        icon: Icons.settings_outlined,
-                        onPressed: () => showDialog(
-                          context: context,
-                          builder: (_) => SettingsDialog(client: collectionsProvider.client),
-                        ),
-                      ),
-                      _CompactIconButton(
-                        tooltip: 'Nouvelle collection',
-                        icon: Icons.add,
-                        onPressed: _openCreateForm,
-                      ),
-                    ],
-                  ),
-                ),
-                if (collectionsProvider.isLoading) const LinearProgressIndicator(),
-                Expanded(
-                  child: collectionsProvider.errorMessage != null
-                      ? Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Text(
-                            collectionsProvider.errorMessage!,
-                            style: TextStyle(color: Theme.of(context).colorScheme.error),
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: collectionsProvider.collections.length,
-                          itemBuilder: (context, index) {
-                            final col = collectionsProvider.collections[index];
-                            final isSelected = _pane != _MainPane.empty &&
-                                (col.name == collectionsProvider.selectedName || col.name == _editingCollection?.name);
-                            return ListTile(
-                              selected: isSelected,
-                              leading: Icon(col.type == CollectionType.auth ? Icons.lock_outline : Icons.table_chart_outlined),
-                              title: Text(col.name),
-                              subtitle: Text('${col.fields.length} champ(s)'),
-                              onTap: () => _openRecords(collectionsProvider, col.name),
-                              trailing: col.name == 'users'
-                                  ? null
-                                  : PopupMenuButton<String>(
-                                      onSelected: (action) => _onCollectionAction(context, collectionsProvider, col, action),
-                                      itemBuilder: (context) => const [
-                                        PopupMenuItem(value: 'edit', child: Text('Éditer le schéma')),
-                                        PopupMenuItem(value: 'codegen', child: Text('Générer le code')),
-                                        PopupMenuItem(value: 'delete', child: Text('Supprimer')),
-                                      ],
-                                    ),
-                            );
-                          },
-                        ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.logout),
-                  title: Text(connection.adminEmail ?? connection.baseUrl ?? '', overflow: TextOverflow.ellipsis),
-                  subtitle: const Text('Se déconnecter'),
-                  onTap: () => connection.disconnect(),
-                ),
-              ],
-            ),
+          _Sidebar(
+            collectionsProvider: collectionsProvider,
+            connection: connection,
+            pane: _pane,
+            editingName: _editingCollection?.name,
+            onOpenRecords: (name) => _openRecords(collectionsProvider, name),
+            onCreate: _openCreateForm,
+            onSettings: _openSettings,
+            onCollectionAction: (col, action) =>
+                _onCollectionAction(context, collectionsProvider, col, action),
           ),
-          const VerticalDivider(width: 1),
+          Container(width: 1, color: AppColors.borderSubtle),
           Expanded(child: _buildMainPane(collectionsProvider)),
         ],
       ),
@@ -163,10 +97,35 @@ class _HomeShellBodyState extends State<_HomeShellBody> {
   Widget _buildMainPane(CollectionsProvider collectionsProvider) {
     switch (_pane) {
       case _MainPane.empty:
-        return const Center(child: Text('Sélectionne une collection à gauche'));
+        return EmptyState(
+          icon: Icons.table_chart_outlined,
+          title: collectionsProvider.collections.isEmpty
+              ? 'Aucune collection'
+              : 'Sélectionne une collection',
+          subtitle: collectionsProvider.collections.isEmpty
+              ? 'Crée ta première collection pour commencer à stocker des données.'
+              : 'Choisis une collection dans la barre latérale pour voir ses records.',
+          action: collectionsProvider.collections.isEmpty
+              ? FilledButton.icon(
+                  onPressed: _openCreateForm,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Nouvelle collection'),
+                )
+              : null,
+        );
+      case _MainPane.settings:
+        return SettingsScreen(
+          key: const ValueKey('settings'),
+          client: collectionsProvider.client,
+        );
       case _MainPane.records:
         final selected = collectionsProvider.selected;
-        if (selected == null) return const Center(child: Text('Sélectionne une collection à gauche'));
+        if (selected == null) {
+          return const EmptyState(
+            icon: Icons.table_chart_outlined,
+            title: 'Sélectionne une collection',
+          );
+        }
         return ChangeNotifierProvider<RecordsProvider>(
           key: ValueKey('records-${selected.name}'),
           create: (_) => RecordsProvider(collectionsProvider.client, selected.name)..load(),
@@ -181,25 +140,10 @@ class _HomeShellBodyState extends State<_HomeShellBody> {
             _editingCollection = null;
           }),
           onSaved: (name) => _openRecords(collectionsProvider, name),
-          onViewRecords: _editingCollection == null ? null : () => _openRecords(collectionsProvider, _editingCollection!.name),
+          onViewRecords: _editingCollection == null
+              ? null
+              : () => _openRecords(collectionsProvider, _editingCollection!.name),
         );
-    }
-  }
-
-  /// Trio modèle/repository/provider Dart pour l'authentification — pas
-  /// propre à une collection, contrairement à `codegen` sur chacune (voir
-  /// tinybase_codegen/AuthCodegenService côté serveur).
-  Future<void> _generateAuthCode(BuildContext context, CollectionsProvider provider) async {
-    try {
-      final files = await provider.client.authCodegen();
-      if (!context.mounted) return;
-      showDialog(
-        context: context,
-        builder: (_) => CodegenDialog(title: 'Authentification', files: files),
-      );
-    } on ApiException catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
@@ -232,11 +176,11 @@ class _HomeShellBodyState extends State<_HomeShellBody> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Supprimer la collection ?'),
-          content: Text('"${col.name}" et TOUS ses records seront définitivement supprimés.'),
+          content: Text('"${col.name}" et tous ses records seront définitivement supprimés.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
               onPressed: () => Navigator.pop(context, true),
               child: const Text('Supprimer'),
             ),
@@ -256,25 +200,182 @@ class _HomeShellBodyState extends State<_HomeShellBody> {
   }
 }
 
-/// `IconButton` par défaut a une zone de tap minimum de 48x48 — 3 d'entre
-/// eux à côté du titre "Collections" dans une sidebar de 260px, ça ne
-/// rentre pas et le titre passe à la ligne (bug UI rapporté). Réduit la
-/// zone de tap sans toucher à la taille de l'icône elle-même.
-class _CompactIconButton extends StatelessWidget {
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onPressed;
-  const _CompactIconButton({required this.tooltip, required this.icon, required this.onPressed});
+class _Sidebar extends StatelessWidget {
+  final CollectionsProvider collectionsProvider;
+  final ConnectionProvider connection;
+  final _MainPane pane;
+  final String? editingName;
+  final ValueChanged<String> onOpenRecords;
+  final VoidCallback onCreate;
+  final VoidCallback onSettings;
+  final void Function(CollectionDefinition col, String action) onCollectionAction;
+
+  const _Sidebar({
+    required this.collectionsProvider,
+    required this.connection,
+    required this.pane,
+    required this.editingName,
+    required this.onOpenRecords,
+    required this.onCreate,
+    required this.onSettings,
+    required this.onCollectionAction,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      icon: Icon(icon, size: 20),
-      onPressed: onPressed,
-      visualDensity: VisualDensity.compact,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+    // Material (pas ColoredBox/Container.color) : sinon ListTile ne peut pas
+    // peindre son ink splash / selectedTileColor (warning Flutter).
+    return Material(
+      color: AppColors.bgElevated,
+      child: SizedBox(
+        width: 268,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 20, 12, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: AppColors.accentMuted,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.accent.withValues(alpha: 0.35)),
+                  ),
+                  child: const Icon(Icons.hub_outlined, size: 15, color: AppColors.accent),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'TinyBase',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: AppColors.text,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Nouvelle collection',
+                  icon: const Icon(Icons.add, size: 20),
+                  onPressed: onCreate,
+                  visualDensity: VisualDensity.compact,
+                  style: IconButton.styleFrom(
+                    foregroundColor: AppColors.text,
+                    backgroundColor: AppColors.surfaceHover,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
+            child: Text(
+              'COLLECTIONS',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AppColors.textFaint,
+                    letterSpacing: 1.1,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+          if (collectionsProvider.isLoading)
+            const LinearProgressIndicator(minHeight: 2)
+          else
+            const SizedBox(height: 2),
+          Expanded(
+            child: collectionsProvider.errorMessage != null
+                ? Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      collectionsProvider.errorMessage!,
+                      style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 13),
+                    ),
+                  )
+                : collectionsProvider.collections.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          'Aucune collection pour l\'instant.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        itemCount: collectionsProvider.collections.length,
+                        itemBuilder: (context, index) {
+                          final col = collectionsProvider.collections[index];
+                          final isSelected = pane != _MainPane.empty &&
+                              pane != _MainPane.settings &&
+                              (col.name == collectionsProvider.selectedName || col.name == editingName);
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 2),
+                            child: ListTile(
+                              dense: true,
+                              selected: isSelected,
+                              leading: Icon(
+                                col.type == CollectionType.auth
+                                    ? Icons.lock_outline
+                                    : Icons.table_chart_outlined,
+                                size: 18,
+                              ),
+                              title: Text(col.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                              subtitle: Text(
+                                col.type == CollectionType.auth
+                                    ? 'auth'
+                                    : '${col.fields.length} champ${col.fields.length == 1 ? '' : 's'}',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              onTap: () => onOpenRecords(col.name),
+                              trailing: col.name == 'users'
+                                  ? null
+                                  : PopupMenuButton<String>(
+                                      tooltip: 'Actions',
+                                      padding: EdgeInsets.zero,
+                                      icon: const Icon(Icons.more_horiz, size: 18),
+                                      onSelected: (action) => onCollectionAction(col, action),
+                                      itemBuilder: (context) => const [
+                                        PopupMenuItem(value: 'edit', child: Text('Éditer le schéma')),
+                                        PopupMenuItem(value: 'codegen', child: Text('Générer le code')),
+                                        PopupMenuItem(value: 'delete', child: Text('Supprimer')),
+                                      ],
+                                    ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+          Container(height: 1, color: AppColors.borderSubtle),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+            child: ListTile(
+              dense: true,
+              selected: pane == _MainPane.settings,
+              leading: const Icon(Icons.settings_outlined, size: 18),
+              title: const Text('Réglages'),
+              onTap: onSettings,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+            child: ListTile(
+              dense: true,
+              leading: const Icon(Icons.logout, size: 18),
+              title: Text(
+                connection.adminEmail ?? 'Admin',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13),
+              ),
+              subtitle: const Text('Se déconnecter', style: TextStyle(fontSize: 11)),
+              onTap: () => connection.disconnect(),
+            ),
+          ),
+        ],
+        ),
+      ),
     );
   }
 }

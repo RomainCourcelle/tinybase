@@ -1,0 +1,28 @@
+# Contexte Docker = racine du monorepo (voir Dockerfile tinybase_server).
+# Évite d'envoyer DB locales, secrets et caches dans l'image de build.
+
+.git
+.gitignore
+**/.dart_tool/
+**/build/
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/.pub/
+
+# SQLite de dev — jamais dans l'image (Railway crée sa propre DB sur le volume)
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.db-journal
+**/.jwt_secret
+
+# Pas besoin du SDK client ni d'éventuels scraps locaux pour builder serveur/admin
+packages/tinybase_client/
+packages/tinybase_demo/
+
+# IDE / OS
+.idea/
+.vscode/
+**/.DS_Store
+**/Thumbs.db

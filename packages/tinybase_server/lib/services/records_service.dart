@@ -76,7 +76,7 @@ class RecordsService {
     );
 
     return (
-      items: rows.map((r) => Map<String, dynamic>.from(r)).toList(),
+      items: rows.map((r) => _publicRecord(col, Map<String, dynamic>.from(r))).toList(),
       totalItems: totalItems,
       page: page,
       perPage: safePerPage,
@@ -90,7 +90,7 @@ class RecordsService {
 
     final record = Map<String, dynamic>.from(row);
     if (!rules.forRecordAction(col.viewRule, auth, record)) throw ForbiddenException();
-    return record;
+    return _publicRecord(col, record);
   }
 
   Future<Map<String, dynamic>> create(
@@ -114,8 +114,12 @@ class RecordsService {
         }
         continue;
       }
+      final coerced = field.type.coerce(data[field.name]);
+      if (field.required && coerced == null) {
+        throw FormatException('Champ requis manquant : "${field.name}"');
+      }
       columns.add(field.name);
-      values.add(field.type.coerce(data[field.name]));
+      values.add(coerced);
     }
 
     final placeholders = List.filled(columns.length, '?').join(', ');
@@ -146,8 +150,12 @@ class RecordsService {
 
     for (final field in col.fields) {
       if (!data.containsKey(field.name)) continue;
+      final coerced = field.type.coerce(data[field.name]);
+      if (field.required && coerced == null) {
+        throw FormatException('Champ requis manquant : "${field.name}"');
+      }
       setClauses.add('"${field.name}" = ?');
-      values.add(field.type.coerce(data[field.name]));
+      values.add(coerced);
     }
 
     values.add(id);
@@ -195,5 +203,17 @@ class RecordsService {
       clauses.add('"$field" ${desc ? 'DESC' : 'ASC'}');
     }
     return clauses.isEmpty ? '' : 'ORDER BY ${clauses.join(', ')}';
+  }
+
+  /// Retire les secrets (`password_hash`, …) avant sérialisation API —
+  /// même pour l'admin : un hash bcrypt n'a rien à faire dans une réponse
+  /// REST (PocketBase fait pareil).
+  Map<String, dynamic> _publicRecord(CollectionDefinition col, Map<String, dynamic> record) {
+    if (col.type != CollectionType.auth) return record;
+    final cleaned = Map<String, dynamic>.from(record);
+    for (final secret in kAuthSecretFields) {
+      cleaned.remove(secret);
+    }
+    return cleaned;
   }
 }

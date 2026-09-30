@@ -56,6 +56,9 @@ class CollectionsService {
     String? deleteRule = '',
   }) async {
     assertValidIdentifier(name, kind: 'collection');
+    if (kReservedCollectionNames.contains(name) || name.startsWith('_')) {
+      throw FormatException('Nom de collection réservé : "$name"');
+    }
     for (final f in fields) {
       assertValidIdentifier(f.name, kind: 'champ');
     }
@@ -97,8 +100,7 @@ class CollectionsService {
 
       final columns = StringBuffer();
       if (type == CollectionType.auth) {
-        columns.write('id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, '
-            'password_hash TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL');
+        columns.write(_authAutoColumnsSql);
       } else {
         columns.write('id TEXT PRIMARY KEY, created TEXT NOT NULL, updated TEXT NOT NULL, owner TEXT');
       }
@@ -106,6 +108,11 @@ class CollectionsService {
         columns.write(', "${f.name}" ${f.type.sqlColumnType}');
       }
       await tx.execute('CREATE TABLE "$name" ($columns);');
+      if (type == CollectionType.auth) {
+        await tx.execute(
+          'CREATE UNIQUE INDEX IF NOT EXISTS "idx_${name}_discord_id" ON "$name"(discord_id);',
+        );
+      }
     });
 
     return (await get(name))!;
@@ -113,6 +120,12 @@ class CollectionsService {
 
   Future<CollectionDefinition> rename(String oldName, String newName) async {
     assertValidIdentifier(newName, kind: 'collection');
+    if (oldName == 'users') {
+      throw StateError('Impossible de renommer la collection "users" (AuthService y est lié)');
+    }
+    if (kReservedCollectionNames.contains(newName) || newName.startsWith('_')) {
+      throw FormatException('Nom de collection réservé : "$newName"');
+    }
     final col = await getOrThrow(oldName);
     if (await get(newName) != null) {
       throw StateError('Une collection "$newName" existe déjà');
@@ -216,8 +229,7 @@ class CollectionsService {
     await tx.execute('DROP TABLE IF EXISTS "$tempName";');
 
     final autoCols = type == CollectionType.auth
-        ? 'id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, '
-            'created TEXT NOT NULL, updated TEXT NOT NULL'
+        ? _authAutoColumnsSql
         : 'id TEXT PRIMARY KEY, created TEXT NOT NULL, updated TEXT NOT NULL, owner TEXT';
     final customCols = newFields.map((f) => '"${f.name}" ${f.type.sqlColumnType}').join(', ');
     final allCols = customCols.isEmpty ? autoCols : '$autoCols, $customCols';
@@ -232,8 +244,9 @@ class CollectionsService {
 
     final autoNames = type == CollectionType.auth ? kAuthAutoFields : kBaseAutoFields;
     final selectCols = <String>[
-      for (final c in autoNames) c,
-      for (final f in newFields) existingCols.contains(f.name) ? '"${f.name}"' : 'NULL AS "${f.name}"',
+      for (final c in autoNames) _selectAutoColumn(c, existingCols),
+      for (final f in newFields)
+        existingCols.contains(f.name) ? '"${f.name}"' : 'NULL AS "${f.name}"',
     ];
 
     await tx.execute(
@@ -241,6 +254,27 @@ class CollectionsService {
     );
     await tx.execute('DROP TABLE "$name";');
     await tx.execute('ALTER TABLE "$tempName" RENAME TO "$name";');
+    if (type == CollectionType.auth) {
+      await tx.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS "idx_${name}_discord_id" ON "$name"(discord_id);',
+      );
+    }
+  }
+
+  /// DDL des colonnes auto d'une collection auth — DOIT rester aligné avec
+  /// [kAuthAutoFields] et le bootstrap `users` de database.dart.
+  static const String _authAutoColumnsSql =
+      'id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, '
+      'discord_id TEXT, disabled INTEGER NOT NULL DEFAULT 0, '
+      'created TEXT NOT NULL, updated TEXT NOT NULL';
+
+  /// Expression SELECT pour une colonne auto : si absente de l'ancienne
+  /// table (ex. `disabled`/`discord_id` ajoutés après coup), on fournit
+  /// une valeur par défaut plutôt que de planter le rebuild.
+  static String _selectAutoColumn(String column, Set<String> existingCols) {
+    if (existingCols.contains(column)) return '"$column"';
+    if (column == 'disabled') return '0 AS "disabled"';
+    return 'NULL AS "$column"';
   }
 
   /// Met à jour uniquement les règles d'accès (aucun impact sur le schéma

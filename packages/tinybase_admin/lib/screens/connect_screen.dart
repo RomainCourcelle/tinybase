@@ -3,34 +3,24 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/connection_provider.dart';
+import '../theme/app_colors.dart';
 
-/// En prod (voir Dockerfile), le serveur TinyBase sert lui-même l'admin en
-/// statique (fallback de buildApp()) : l'admin tourne alors TOUJOURS au même
-/// origin que l'API elle-même, donc `Uri.base.origin` (l'URL affichée dans
-/// la barre d'adresse du navigateur) EST la bonne valeur — pas besoin de la
-/// demander. En dev en revanche (`flutter run -d chrome`), l'admin tourne
-/// sur le serveur de dev Flutter (port aléatoire), qui n'a AUCUN rapport
-/// avec le port du serveur TinyBase (8090 par défaut) : deviner à partir de
-/// l'origin serait faux. On distingue les deux cas avec une heuristique
-/// simple : le serveur de dev Flutter Web est toujours sur localhost/127.0.0.1,
-/// donc dans ce cas précis on garde l'ancien défaut codé en dur plutôt que
-/// de deviner.
-String _defaultServerUrl() {
-  if (!kIsWeb) return 'http://localhost:8090';
-  final origin = Uri.base.origin;
+/// En prod (Dockerfile), le serveur TinyBase sert lui-même l'admin : l'origin
+/// du navigateur EST l'API. En dev (`flutter run -d chrome`), l'admin est sur
+/// un port Flutter distinct → on demande encore l'URL (défaut localhost:8090).
+bool get _isSameOriginProd {
+  if (!kIsWeb) return false;
   final host = Uri.base.host;
-  if (host == 'localhost' || host == '127.0.0.1') return 'http://localhost:8090';
-  return origin;
+  return host != 'localhost' && host != '127.0.0.1';
+}
+
+String _defaultServerUrl() {
+  if (_isSameOriginProd) return Uri.base.origin;
+  return 'http://localhost:8090';
 }
 
 enum _Step { url, setup, login }
 
-/// Écran de connexion en 2 temps : d'abord l'URL du serveur (on demande
-/// alors `/api/admin/auth/status` pour savoir si un compte admin existe déjà
-/// dessus), puis soit "créer le premier compte admin" (`hasAdmin == false`,
-/// premier lancement de l'instance) soit "se connecter" (`hasAdmin == true`)
-/// — voir ConnectionProvider/AdminService. Remplace le champ "jeton admin"
-/// saisi à la main de la V1.
 class ConnectScreen extends StatefulWidget {
   const ConnectScreen({super.key});
 
@@ -46,6 +36,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
   final _confirmController = TextEditingController();
 
   _Step _step = _Step.url;
+  bool _bootstrapping = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isSameOriginProd) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapSameOrigin());
+    }
+  }
 
   @override
   void dispose() {
@@ -56,11 +55,30 @@ class _ConnectScreenState extends State<ConnectScreen> {
     super.dispose();
   }
 
+  Future<void> _bootstrapSameOrigin() async {
+    setState(() => _bootstrapping = true);
+    final connection = context.read<ConnectionProvider>();
+    final hasAdmin = await connection.checkAdminStatus(_defaultServerUrl());
+    if (!mounted) return;
+    if (hasAdmin == null) {
+      connection.clearError();
+      setState(() {
+        _bootstrapping = false;
+        _step = _Step.url;
+      });
+      return;
+    }
+    setState(() {
+      _bootstrapping = false;
+      _step = hasAdmin ? _Step.login : _Step.setup;
+    });
+  }
+
   Future<void> _submitUrl() async {
     if (!_formKey.currentState!.validate()) return;
     final connection = context.read<ConnectionProvider>();
     final hasAdmin = await connection.checkAdminStatus(_urlController.text);
-    if (hasAdmin == null) return; // erreur déjà affichée via connection.errorMessage
+    if (hasAdmin == null) return;
     setState(() => _step = hasAdmin ? _Step.login : _Step.setup);
   }
 
@@ -84,58 +102,135 @@ class _ConnectScreenState extends State<ConnectScreen> {
   @override
   Widget build(BuildContext context) {
     final connection = context.watch<ConnectionProvider>();
+
+    if (_bootstrapping) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text('TinyBase Admin', style: Theme.of(context).textTheme.headlineMedium),
-                  const SizedBox(height: 8),
-                  Text(_subtitle(), style: Theme.of(context).textTheme.bodyMedium),
-                  const SizedBox(height: 24),
-                  ..._buildFields(),
-                  if (connection.errorMessage != null) ...[
-                    const SizedBox(height: 12),
-                    Text(connection.errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                  ],
-                  const SizedBox(height: 20),
-                  FilledButton(
-                    onPressed: connection.isConnecting ? null : (_step == _Step.url ? _submitUrl : _submitCredentials),
-                    child: connection.isConnecting
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : Text(_step == _Step.url ? 'Continuer' : (_step == _Step.setup ? 'Créer le compte' : 'Se connecter')),
+      body: Stack(
+        children: [
+          // Atmosphère : dégradé sombre + halo accent (pas un fond plat).
+          const Positioned.fill(child: _ConnectBackdrop()),
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(28, 32, 28, 28),
+                  decoration: BoxDecoration(
+                    color: AppColors.bgElevated.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
                   ),
-                  if (_step != _Step.url) ...[
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: connection.isConnecting ? null : _backToUrl,
-                      child: const Text('← Changer de serveur'),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: AppColors.accentMuted,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppColors.accent.withValues(alpha: 0.35)),
+                              ),
+                              child: const Icon(Icons.hub_outlined, color: AppColors.accent, size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              'TinyBase',
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: AppColors.text,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -0.3,
+                                  ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 28),
+                        Text(
+                          _title(),
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 22),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(_subtitle(), style: Theme.of(context).textTheme.bodyMedium),
+                        const SizedBox(height: 28),
+                        ..._buildFields(),
+                        if (connection.errorMessage != null) ...[
+                          const SizedBox(height: 14),
+                          Text(
+                            connection.errorMessage!,
+                            style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 13),
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        FilledButton(
+                          onPressed: connection.isConnecting
+                              ? null
+                              : (_step == _Step.url ? _submitUrl : _submitCredentials),
+                          child: connection.isConnecting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Text(_ctaLabel()),
+                        ),
+                        if (_step != _Step.url && !_isSameOriginProd) ...[
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: connection.isConnecting ? null : _backToUrl,
+                            child: const Text('← Changer de serveur'),
+                          ),
+                        ],
+                      ],
                     ),
-                  ],
-                ],
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
+  }
+
+  String _title() {
+    switch (_step) {
+      case _Step.url:
+        return 'Connexion';
+      case _Step.setup:
+        return 'Créer l\'admin';
+      case _Step.login:
+        return 'Bon retour';
+    }
   }
 
   String _subtitle() {
     switch (_step) {
       case _Step.url:
-        return 'Connecte-toi à ton instance TinyBase pour gérer les collections et les données.';
+        return 'Indique l\'URL de ton instance (en local seulement).';
       case _Step.setup:
-        return 'Premier lancement de cette instance : crée le compte administrateur.';
+        return 'Premier lancement — ce compte gère le schéma et les données.';
       case _Step.login:
         return 'Connecte-toi avec ton compte administrateur.';
+    }
+  }
+
+  String _ctaLabel() {
+    switch (_step) {
+      case _Step.url:
+        return 'Continuer';
+      case _Step.setup:
+        return 'Créer le compte';
+      case _Step.login:
+        return 'Se connecter';
     }
   }
 
@@ -147,7 +242,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
           decoration: const InputDecoration(
             labelText: 'URL du serveur',
             hintText: 'http://localhost:8090',
-            border: OutlineInputBorder(),
           ),
           validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
           onFieldSubmitted: (_) => _submitUrl(),
@@ -159,14 +253,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
       TextFormField(
         controller: _emailController,
         keyboardType: TextInputType.emailAddress,
-        decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+        decoration: const InputDecoration(labelText: 'Email'),
         validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
       ),
       const SizedBox(height: 12),
       TextFormField(
         controller: _passwordController,
         obscureText: true,
-        decoration: const InputDecoration(labelText: 'Mot de passe', border: OutlineInputBorder()),
+        decoration: const InputDecoration(labelText: 'Mot de passe'),
         validator: (v) {
           if (v == null || v.isEmpty) return 'Requis';
           if (_step == _Step.setup && v.length < 8) return 'Au moins 8 caractères';
@@ -179,11 +273,70 @@ class _ConnectScreenState extends State<ConnectScreen> {
         TextFormField(
           controller: _confirmController,
           obscureText: true,
-          decoration: const InputDecoration(labelText: 'Confirmer le mot de passe', border: OutlineInputBorder()),
+          decoration: const InputDecoration(labelText: 'Confirmer le mot de passe'),
           validator: (v) => v != _passwordController.text ? 'Les mots de passe ne correspondent pas' : null,
           onFieldSubmitted: (_) => _submitCredentials(),
         ),
       ],
     ];
+  }
+}
+
+class _ConnectBackdrop extends StatelessWidget {
+  const _ConnectBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF0B0F0E),
+            Color(0xFF0E1612),
+            Color(0xFF0A1210),
+          ],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -120,
+            right: -80,
+            child: Container(
+              width: 380,
+              height: 380,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    AppColors.accent.withValues(alpha: 0.18),
+                    AppColors.accent.withValues(alpha: 0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -160,
+            left: -100,
+            child: Container(
+              width: 420,
+              height: 420,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF1A3D2E).withValues(alpha: 0.45),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

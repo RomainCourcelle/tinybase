@@ -17,6 +17,10 @@ build/
 *.db-shm
 *.db-journal
 
+# Secret JWT auto-généré en local (voir Config / README serveur)
+.jwt_secret
+**/.jwt_secret
+
 # IDE
 .idea/
 *.iml

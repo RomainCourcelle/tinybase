@@ -5,6 +5,7 @@ import 'package:shelf/shelf.dart';
 import '../services/admin_service.dart';
 import '../services/auth_service.dart';
 import '../services/records_service.dart';
+import '../services/settings_service.dart';
 
 Response jsonResponse(Object? data, {int status = 200}) {
   return Response(
@@ -23,6 +24,7 @@ Response errorResponse(Object error) {
   if (error is NotFoundException) return jsonResponse({'error': error.message}, status: 404);
   if (error is AuthException) return jsonResponse({'error': error.message}, status: 400);
   if (error is AdminException) return jsonResponse({'error': error.message}, status: 400);
+  if (error is SettingsException) return jsonResponse({'error': error.message}, status: 400);
   if (error is FormatException) return jsonResponse({'error': error.message}, status: 400);
   if (error is StateError) return jsonResponse({'error': error.message}, status: 400);
   return jsonResponse({'error': error.toString()}, status: 500);

@@ -52,8 +52,15 @@ class FilterParser {
         buffer.write('"$field" LIKE ?');
         params.add('%${_unquote(rawValue)}%');
       } else {
-        buffer.write('"$field" $op ?');
-        params.add(_parseValue(rawValue));
+        final value = _parseValue(rawValue);
+        // En SQL, `= NULL` / `!= NULL` sont TOUJOURS faux — il faut
+        // `IS NULL` / `IS NOT NULL`. On ne bind pas de paramètre dans ce cas.
+        if (value == null && (op == '=' || op == '!=')) {
+          buffer.write(op == '=' ? '"$field" IS NULL' : '"$field" IS NOT NULL');
+        } else {
+          buffer.write('"$field" $op ?');
+          params.add(value);
+        }
       }
     }
 

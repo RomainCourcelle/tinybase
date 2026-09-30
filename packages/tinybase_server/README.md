@@ -1,29 +1,34 @@
 # TinyBase
 
 BaaS auto-hébergé en Dart, façon PocketBase — moteur de collections
-dynamique (shelf + sqlite_async), compilé en binaire unique via
-`dart compile exe`. Admin en Flutter Web à venir (pas encore dans ce repo).
+dynamique (shelf + sqlite_async), admin Flutter Web, codegen Dart,
+compilé en binaire unique via `dart compile exe`.
 
 ## Démarrage
 
 ```bash
-# 1. Récupérer les dépendances (pas de versions figées dans pubspec.yaml
-#    volontairement — pub résout les dernières compatibles) :
-dart pub add shelf shelf_router sqlite_async dart_jsonwebtoken bcrypt uuid
+# Depuis packages/tinybase_server :
 dart pub get
 
-# 2. Variables d'env (voir lib/core/config.dart pour les valeurs par défaut
-#    de dev — À CHANGER en prod, surtout JWT_SECRET et ADMIN_TOKEN) :
+# Optionnel — sinon un secret est auto-généré dans `.jwt_secret` à côté de la DB :
+#   set JWT_SECRET=<openssl rand -hex 32>
 set PORT=8090
-set JWT_SECRET=change-moi
-set ADMIN_TOKEN=change-moi-aussi
 set DB_PATH=tinybase.db
 
-# 3. Lancer :
 dart run bin/server.dart
 ```
 
 Healthcheck : `GET http://localhost:8090/health`
+
+### JWT_SECRET — pas besoin d'y penser en local
+
+Au démarrage :
+1. Si `JWT_SECRET` est défini dans l'environnement → on l'utilise (min. 16 caractères).
+2. Sinon → lecture / création automatique de `.jwt_secret` **à côté de la DB**.
+
+Ça suit le volume persisté (Railway etc.). Définis `JWT_SECRET` explicitement
+seulement si tu as **plusieurs instances** derrière un load-balancer (elles
+doivent partager la même clé).
 
 ## API
 
@@ -31,41 +36,47 @@ Healthcheck : `GET http://localhost:8090/health`
 - `POST /register` `{email, password}` → session (access + refresh JWT)
 - `POST /login` `{email, password}` → session
 - `POST /refresh` `{refreshToken}` → nouvelle session
-- `GET /me` (Bearer token) → `{id}`
+- `GET /me` (Bearer token) → `{id, email}`
+- Discord OAuth : `/api/auth/discord/authorize?target=<deep-link>` (si configuré)
 
-### Admin schéma (`/api/admin/collections`, header `X-Admin-Token`)
+### Admin auth (`/api/admin/auth`)
+- `GET /status` → `{hasAdmin}`
+- `POST /setup` `{email, password}` → crée le **premier** admin (ensuite fermé)
+- `POST /login` `{email, password}` → `{admin, accessToken}`
+
+### Admin schéma (`/api/admin/collections`, Bearer admin)
 - `GET /` → liste des collections
 - `GET /<name>` → détail
-- `POST /` `{name, type, fields, listRule, viewRule, createRule, updateRule, deleteRule}` → crée
-- `PATCH /<name>` `{name?, fields?, renames?, listRule?, ...}` → renomme / édite les champs (rename direct, ajout/suppression de colonne, reconstruction de table si changement de type) / met à jour les règles
-- `DELETE /<name>` → supprime
+- `POST /` `{name, type, fields, listRule, ...}` → crée
+- `PATCH /<name>` → renomme / édite champs / règles
+- `DELETE /<name>` → supprime (pas `users`)
+- `GET /<name>/codegen` → fichiers Dart générés
 
-### Records (`/api/collections/<name>/records`, Bearer token optionnel selon les règles)
+### Records (`/api/collections/<name>/records`, Bearer optionnel selon règles)
 - `GET /` (`?filter=&sort=&page=&perPage=`) → liste paginée
 - `GET /<id>` → un record
-- `POST /` → crée (`owner` assigné automatiquement au user authentifié)
+- `POST /` → crée (`owner` = user authentifié)
 - `PATCH /<id>` → met à jour
 - `DELETE /<id>` → supprime
 
+Sur une collection `auth` (`users`) : create/update refusés via cette API ;
+`password_hash` n'est **jamais** renvoyé.
+
 ### Règles d'accès (V1)
-Grammaire volontairement restreinte :
 - `""` → public
-- `null` (absent) → personne (réservé à l'admin en V2)
-- `@request.auth.id != ""` → utilisateur authentifié, n'importe lequel
-- `@request.auth.id = <champ>` → uniquement le propriétaire (compare `<champ>` à l'id de l'utilisateur)
+- `null` → admin seulement
+- `@request.auth.id != ""` → utilisateur authentifié
+- `@request.auth.id = <champ>` → propriétaire (compare `<champ>` à l'uid)
 
 ## Déploiement (Railway)
 
-Voir le Dockerfile à la racine. Points importants :
-- Railway injecte `PORT` — déjà géré par `Config.port`.
-- **Attacher un Volume Railway** monté sur le dossier contenant `tinybase.db` (`DB_PATH`), sinon la base repart de zéro à chaque redeploy (filesystem éphémère par défaut).
-- Définir `JWT_SECRET` et `ADMIN_TOKEN` dans les variables d'env Railway (jamais les valeurs par défaut de dev).
+Voir le Dockerfile à la racine.
+- Attacher un **Volume** sur le dossier de `DB_PATH` (sinon DB + `.jwt_secret` repartent à zéro).
+- Optionnel : fixer `JWT_SECRET` si plusieurs replicas.
 
-## Limites connues V1 (voir TODO.md pour le détail du plan)
+## Limites connues V1 (voir TODO.md)
 
-- Pas de stockage de fichiers (prévu V2)
-- Pas de temps réel (SSE/websocket, prévu V2)
-- Parseur de filtre sans parenthèses, précédence `&&`/`||` gauche-à-droite stricte
-- Un seul provider OAuth prévu (Discord), pas encore branché
-- Pas encore d'admin Flutter Web (à faire dans un projet séparé qui consomme cette API)
-- Pas encore de génération de code Dart (modèle + repository + provider) à partir du schéma
+- Pas de stockage de fichiers / temps réel (V2)
+- Parseur de filtre sans parenthèses
+- Un seul compte admin
+- `target` Discord : deep-link custom ou `localhost` uniquement

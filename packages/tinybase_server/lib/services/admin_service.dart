@@ -44,27 +44,37 @@ class AdminService {
   }
 
   Future<AdminSession> createFirstAdmin(String email, String password) async {
-    if (await hasAnyAdmin()) {
-      throw AdminException('Un compte administrateur existe déjà');
-    }
+    final normalizedEmail = email.trim().toLowerCase();
     if (password.length < 8) {
       throw AdminException('Le mot de passe doit faire au moins 8 caractères');
     }
 
-    final id = _uuid.v4();
-    final now = DateTime.now().toUtc().toIso8601String();
-    final hash = BCrypt.hashpw(password, BCrypt.gensalt());
+    // Check + INSERT dans la même writeTransaction : deux setup concurrents
+    // ne peuvent plus créer deux admins (la V1 promet un seul compte).
+    final session = await db.writeTransaction((tx) async {
+      final existing = await tx.getOptional('SELECT id FROM _admins LIMIT 1');
+      if (existing != null) {
+        throw AdminException('Un compte administrateur existe déjà');
+      }
 
-    await db.execute(
-      'INSERT INTO _admins (id, email, password_hash, created, updated) VALUES (?, ?, ?, ?, ?)',
-      [id, email, hash, now, now],
-    );
+      final id = _uuid.v4();
+      final now = DateTime.now().toUtc().toIso8601String();
+      final hash = BCrypt.hashpw(password, BCrypt.gensalt());
 
-    return _issueSession(id, email);
+      await tx.execute(
+        'INSERT INTO _admins (id, email, password_hash, created, updated) VALUES (?, ?, ?, ?, ?)',
+        [id, normalizedEmail, hash, now, now],
+      );
+
+      return _issueSession(id, normalizedEmail);
+    });
+
+    return session;
   }
 
   Future<AdminSession> login(String email, String password) async {
-    final row = await db.getOptional('SELECT * FROM _admins WHERE email = ?', [email]);
+    final normalizedEmail = email.trim().toLowerCase();
+    final row = await db.getOptional('SELECT * FROM _admins WHERE email = ?', [normalizedEmail]);
     if (row == null) throw AdminException('Email ou mot de passe incorrect');
 
     final hash = row['password_hash'] as String;

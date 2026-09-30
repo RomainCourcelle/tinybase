@@ -18,6 +18,9 @@ class Database {
   /// ce paramètre, comportement inchangé (toujours [Config.dbPath]).
   static Future<void> init({String? path}) async {
     if (_initialized) return;
+    // JWT avant tout service auth. On passe [path] pour que le fichier
+    // `.jwt_secret` (si pas d'env) vive à côté de la DB de test / prod.
+    await Config.init(dbPathForSecret: path ?? Config.dbPath);
     instance = SqliteDatabase(path: path ?? Config.dbPath);
     await instance.initialize();
 
@@ -31,7 +34,11 @@ class Database {
     await _bootstrapUsersCollection();
     await _migrateUsersDiscordId();
     await _migrateUsersDisabled();
+    await _migrateUsersListRule();
     await _bootstrapSettingsTable();
+    await _migrateSettingsAuthTtl();
+    await _migrateSettingsOAuthProviders();
+    await _migrateUsersOAuthIds();
     await _bootstrapAdminsTable();
 
     _initialized = true;
@@ -69,10 +76,15 @@ class Database {
     if (existing != null) return;
 
     final now = DateTime.now().toUtc().toIso8601String();
+    // listRule = self-only (`id`) : un user connecté ne doit PAS lister
+    // tous les comptes (fuite d'emails / metadonnées). L'admin outrepasse
+    // via RulesService. view/update : soi-même. create/delete : admin only
+    // (chaîne vide côté create est volontairement fermée via l'API records
+    // qui refuse toute écriture auth — voir RecordsService).
     await instance.execute(
       '''
       INSERT INTO _collections (id, name, type, fields, list_rule, view_rule, create_rule, update_rule, delete_rule, created, updated)
-      VALUES (?, 'users', 'auth', '[]', '@request.auth.id != ""', '@request.auth.id = id', '', '@request.auth.id = id', '', ?, ?)
+      VALUES (?, 'users', 'auth', '[]', '@request.auth.id = id', '@request.auth.id = id', null, '@request.auth.id = id', null, ?, ?)
       ''',
       ['_col_users', now, now],
     );
@@ -102,6 +114,23 @@ class Database {
     }
   }
 
+  /// Bases créées avec l'ancien `listRule` trop permissif
+  /// (`@request.auth.id != ""` = tout user authentifié voit tous les users).
+  /// On resserre UNIQUEMENT si la règle est encore exactement cette valeur
+  /// bootstrap — une règle custom volontairement posée par l'admin est
+  /// laissée intacte.
+  static Future<void> _migrateUsersListRule() async {
+    final row = await instance.getOptional(
+      "SELECT list_rule FROM _collections WHERE name = 'users'",
+    );
+    if (row == null) return;
+    if (row['list_rule'] == '@request.auth.id != ""') {
+      await instance.execute(
+        "UPDATE _collections SET list_rule = '@request.auth.id = id' WHERE name = 'users'",
+      );
+    }
+  }
+
   /// Migration pour une base créée AVANT l'ajout de la connexion Discord :
   /// `users` existe déjà sans la colonne `discord_id`. `ADD COLUMN` seul
   /// (nullable, pas de rebuild de table nécessaire ici contrairement à un
@@ -122,7 +151,7 @@ class Database {
   }
 
   /// Réglages globaux de l'instance (inscriptions ouvertes, config
-  /// Discord) — voir settings_service.dart. Une seule ligne, id fixe.
+  /// Discord, TTL JWT) — voir settings_service.dart. Une seule ligne, id fixe.
   static Future<void> _bootstrapSettingsTable() async {
     await instance.execute('''
       CREATE TABLE IF NOT EXISTS _settings (
@@ -130,6 +159,16 @@ class Database {
         registrations_open INTEGER NOT NULL DEFAULT 1,
         discord_client_id TEXT,
         discord_client_secret TEXT,
+        google_client_id TEXT,
+        google_client_secret TEXT,
+        microsoft_client_id TEXT,
+        microsoft_client_secret TEXT,
+        apple_client_id TEXT,
+        apple_team_id TEXT,
+        apple_key_id TEXT,
+        apple_private_key TEXT,
+        auth_access_ttl_hours INTEGER NOT NULL DEFAULT 2,
+        auth_refresh_ttl_days INTEGER NOT NULL DEFAULT 30,
         updated TEXT NOT NULL
       );
     ''');
@@ -139,6 +178,57 @@ class Database {
       await instance.execute(
         "INSERT INTO _settings (id, registrations_open, updated) VALUES ('settings', 1, ?)",
         [now],
+      );
+    }
+  }
+
+  /// Bases créées avant les colonnes de durée JWT : valeurs = anciens
+  /// défauts Config (2h access / 30j refresh).
+  static Future<void> _migrateSettingsAuthTtl() async {
+    final columns = await instance.getAll('PRAGMA table_info(_settings)');
+    final names = columns.map((c) => c['name'] as String).toSet();
+    if (!names.contains('auth_access_ttl_hours')) {
+      await instance.execute(
+        'ALTER TABLE _settings ADD COLUMN auth_access_ttl_hours INTEGER NOT NULL DEFAULT 2;',
+      );
+    }
+    if (!names.contains('auth_refresh_ttl_days')) {
+      await instance.execute(
+        'ALTER TABLE _settings ADD COLUMN auth_refresh_ttl_days INTEGER NOT NULL DEFAULT 30;',
+      );
+    }
+  }
+
+  static Future<void> _migrateSettingsOAuthProviders() async {
+    final columns = await instance.getAll('PRAGMA table_info(_settings)');
+    final names = columns.map((c) => c['name'] as String).toSet();
+    const extras = [
+      'google_client_id TEXT',
+      'google_client_secret TEXT',
+      'microsoft_client_id TEXT',
+      'microsoft_client_secret TEXT',
+      'apple_client_id TEXT',
+      'apple_team_id TEXT',
+      'apple_key_id TEXT',
+      'apple_private_key TEXT',
+    ];
+    for (final def in extras) {
+      final name = def.split(' ').first;
+      if (!names.contains(name)) {
+        await instance.execute('ALTER TABLE _settings ADD COLUMN $def;');
+      }
+    }
+  }
+
+  static Future<void> _migrateUsersOAuthIds() async {
+    final columns = await instance.getAll('PRAGMA table_info(users)');
+    final names = columns.map((c) => c['name'] as String).toSet();
+    for (final col in ['google_id', 'apple_id', 'microsoft_id']) {
+      if (!names.contains(col)) {
+        await instance.execute('ALTER TABLE users ADD COLUMN $col TEXT;');
+      }
+      await instance.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_$col ON users($col);',
       );
     }
   }
