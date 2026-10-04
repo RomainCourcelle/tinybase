@@ -20,13 +20,10 @@ class RiverpodGenerator {
 // GÉNÉRÉ par TinyBase codegen — ne pas éditer à la main.
 // Régénère depuis l'admin TinyBase (collection "${collection.name}").
 //
-// pubspec.yaml (app) :
-//   flutter_riverpod: ^2.6.1
-//   riverpod_annotation: ^2.6.1
-//   tinybase_client: ...
-// dev_dependencies:
-//   riverpod_generator: ^2.6.1
-//   build_runner: ^2.4.13
+// Dépendances (sans versions — Pub résout le dernier compatible) :
+//   flutter pub add flutter_riverpod riverpod_annotation
+//   flutter pub add dev:build_runner dev:riverpod_generator
+//   + tinybase_client (git)
 //
 // Puis : dart run build_runner build
 //

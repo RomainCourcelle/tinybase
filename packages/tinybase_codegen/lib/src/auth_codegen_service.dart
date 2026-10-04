@@ -225,35 +225,37 @@ $oauth
 // GÉNÉRÉ par TinyBase codegen — ne pas éditer à la main.
 // Régénère depuis l'admin TinyBase (Réglages → Code client).
 //
-// pubspec.yaml (app) :
-//   flutter_riverpod: ^2.6.1
-//   riverpod_annotation: ^2.6.1
-//   tinybase_client: ...
-// dev_dependencies:
-//   riverpod_generator: ^2.6.1
-//   build_runner: ^2.4.13
+// Dépendances (sans versions — Pub résout le dernier compatible) :
+//   flutter pub add flutter_riverpod riverpod_annotation
+//   flutter pub add dev:build_runner dev:riverpod_generator
+//   + tinybase_client (git)
 //
 // Puis : dart run build_runner build
 //
 // Au démarrage :
-//   ProviderScope(
+//   final client = TinyBaseClient(baseUrl: 'https://...');
+//   final container = ProviderContainer(
 //     overrides: [
-//       tinyBaseClientProvider.overrideWithValue(
-//         TinyBaseClient(baseUrl: 'https://...'),
-//       ),
+//       tinyBaseClientProvider.overrideWithValue(client),
 //     ],
-//     child: MyApp(),
-//   )
+//   );
+//   await container.read(authProvider.notifier).tryRestoreSession();
+//   runApp(
+//     UncontrolledProviderScope(
+//       container: container,
+//       child: MyApp(),
+//     ),
+//   );
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:tinybase_client/tinybase_client.dart';
 
 part 'auth_provider.g.dart';
 
-/// Client TinyBase — à overrider dans [ProviderScope] (voir en-tête).
+/// Client TinyBase — à overrider au démarrage (voir en-tête).
 @Riverpod(keepAlive: true)
 TinyBaseClient tinyBaseClient(Ref ref) {
   throw UnimplementedError(
-    'Override tinyBaseClientProvider dans ProviderScope '
+    'Override tinyBaseClientProvider '
     '(tinyBaseClientProvider.overrideWithValue(...)).',
   );
 }
