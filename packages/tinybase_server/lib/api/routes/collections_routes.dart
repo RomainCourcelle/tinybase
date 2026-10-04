@@ -134,8 +134,9 @@ Router buildCollectionsRoutes(CollectionsService collectionsService) {
   router.get('/<name>/codegen', (Request request, String name) async {
     try {
       final collection = await collectionsService.getOrThrow(name);
-      final files = CodegenService.generate(collection).map((f) => f.toJson()).toList();
-      return jsonResponse({'files': files});
+      final style = StateManagementStyle.parse(request.url.queryParameters['style']);
+      final files = CodegenService.generate(collection, style: style).map((f) => f.toJson()).toList();
+      return jsonResponse({'files': files, 'style': style.apiValue});
     } catch (e) {
       return errorResponse(e);
     }

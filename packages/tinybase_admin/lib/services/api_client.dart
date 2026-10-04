@@ -246,25 +246,31 @@ class ApiClient {
     );
   }
 
-  /// Génère modèle + repository + provider Dart pour la collection (voir
-  /// tinybase_codegen côté serveur). Chaque entrée de la liste a la forme
-  /// `{"path": "lib/models/x.dart", "content": "..."}`.
-  Future<List<GeneratedFile>> codegen(String collectionName) {
+  /// Génère modèle + repository + couche state Dart pour la collection.
+  /// [style] : `provider` (ChangeNotifier) ou `riverpod` (annotations).
+  Future<List<GeneratedFile>> codegen(
+    String collectionName, {
+    String style = 'provider',
+  }) {
     return _handle(
-      () => http.get(_uri('/api/admin/collections/$collectionName/codegen'), headers: _headers),
+      () => http.get(
+        _uri('/api/admin/collections/$collectionName/codegen', {'style': style}),
+        headers: _headers,
+      ),
       (json) => ((json as Map)['files'] as List)
           .map((f) => GeneratedFile.fromJson(f as Map<String, dynamic>))
           .toList(),
     );
   }
 
-  /// Génère la couche authentification (modèle utilisateur/repository/
-  /// provider Dart) — pas propre à une collection (voir
-  /// tinybase_codegen/AuthCodegenService côté serveur), utile pour une app
-  /// qui n'utilise pas nexus_code_launcher.
-  Future<List<GeneratedFile>> authCodegen() {
+  /// Génère la couche Auth (voir AuthCodegenService).
+  /// [style] : `provider` ou `riverpod`.
+  Future<List<GeneratedFile>> authCodegen({String style = 'provider'}) {
     return _handle(
-      () => http.get(_uri('/api/admin/settings/codegen'), headers: _headers),
+      () => http.get(
+        _uri('/api/admin/settings/codegen', {'style': style}),
+        headers: _headers,
+      ),
       (json) => ((json as Map)['files'] as List)
           .map((f) => GeneratedFile.fromJson(f as Map<String, dynamic>))
           .toList(),

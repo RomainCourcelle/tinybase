@@ -3,6 +3,8 @@ import 'package:tinybase_shared/tinybase_shared.dart';
 import 'model_generator.dart';
 import 'provider_generator.dart';
 import 'repository_generator.dart';
+import 'riverpod_generator.dart';
+import 'state_management_style.dart';
 import 'string_utils.dart';
 
 /// Un fichier généré, prêt à être écrit sur disque côté client (ou renvoyé
@@ -15,13 +17,18 @@ class GeneratedFile {
   Map<String, dynamic> toJson() => {'path': path, 'content': content};
 }
 
-/// Point d'entrée du codegen : modèle + repository + provider pour une
-/// collection donnée. `path:` volontairement calqué sur la convention
-/// `lib/models/`, `lib/repositories/`, `lib/providers/` déjà utilisée dans
-/// les projets Flutter de Romain.
+/// Point d'entrée du codegen : modèle + repository + couche state
+/// ([StateManagementStyle.provider] ou [StateManagementStyle.riverpod]).
 class CodegenService {
-  static List<GeneratedFile> generate(CollectionDefinition collection) {
+  static List<GeneratedFile> generate(
+    CollectionDefinition collection, {
+    StateManagementStyle style = StateManagementStyle.provider,
+  }) {
     final snake = toSnakeCase(collection.name);
+    final stateContent = switch (style) {
+      StateManagementStyle.provider => ProviderGenerator.generate(collection),
+      StateManagementStyle.riverpod => RiverpodGenerator.generate(collection),
+    };
     return [
       GeneratedFile(path: 'lib/models/$snake.dart', content: ModelGenerator.generate(collection)),
       GeneratedFile(
@@ -30,12 +37,11 @@ class CodegenService {
       ),
       GeneratedFile(
         path: 'lib/providers/${snake}_provider.dart',
-        content: ProviderGenerator.generate(collection),
+        content: stateContent,
       ),
     ];
   }
 }
 
-// Le codegen de la couche Auth (session/repository/provider, pas propre à
-// une collection) vit dans AuthCodegenService (auth_codegen_service.dart),
-// pas ici — évite d'avoir deux générateurs concurrents pour la même chose.
+// Le codegen de la couche Auth (session/provider, pas propre à une collection)
+// vit dans AuthCodegenService (auth_codegen_service.dart).

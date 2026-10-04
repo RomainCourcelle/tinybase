@@ -1,29 +1,38 @@
 import 'codegen_service.dart';
+import 'state_management_style.dart';
 
-/// Génère un AuthProvider thin autour de [TinyBaseClient].
+/// Génère la couche Auth autour de [TinyBaseClient].
 ///
-/// Dépendances pubspec : `tinybase_client` (path), `provider`.
+/// - [StateManagementStyle.provider] → `ChangeNotifier` + `provider`
+/// - [StateManagementStyle.riverpod] → `@riverpod` (+ `tinyBaseClientProvider`)
 class AuthCodegenService {
   static List<GeneratedFile> generate({
     bool includeDiscord = false,
     bool includeGoogle = false,
     bool includeApple = false,
     bool includeMicrosoft = false,
+    StateManagementStyle style = StateManagementStyle.provider,
   }) {
-    return [
-      GeneratedFile(
-        path: 'lib/providers/auth_provider.dart',
-        content: _authProvider(
+    final content = switch (style) {
+      StateManagementStyle.provider => _authProvider(
           includeDiscord: includeDiscord,
           includeGoogle: includeGoogle,
           includeApple: includeApple,
           includeMicrosoft: includeMicrosoft,
         ),
-      ),
+      StateManagementStyle.riverpod => _authRiverpod(
+          includeDiscord: includeDiscord,
+          includeGoogle: includeGoogle,
+          includeApple: includeApple,
+          includeMicrosoft: includeMicrosoft,
+        ),
+    };
+    return [
+      GeneratedFile(path: 'lib/providers/auth_provider.dart', content: content),
     ];
   }
 
-  static String _authProvider({
+  static String _oauthHelpers({
     required bool includeDiscord,
     required bool includeGoogle,
     required bool includeApple,
@@ -57,16 +66,45 @@ class AuthCodegenService {
       _run(() => client.auth.signInWithIdToken(OAuthProvider.apple, idToken: idToken));
 ''');
     }
-
     final hasBrowser = includeDiscord || includeMicrosoft;
+    final oauthCallback = hasBrowser
+        ? '''
+  Future<bool> handleOAuthCallback(Uri callbackUri) async {
+    _errorMessage = null;
+    try {
+      final session = await client.auth.handleOAuthCallback(callbackUri);
+      notifyListeners();
+      return session != null;
+    } on TinyBaseException catch (e) {
+      _errorMessage = e.message;
+      notifyListeners();
+      return false;
+    }
+  }
+'''
+        : '';
+    return '${browserBits.join()}$oauthCallback${nativeBits.join()}';
+  }
+
+  static String _authProvider({
+    required bool includeDiscord,
+    required bool includeGoogle,
+    required bool includeApple,
+    required bool includeMicrosoft,
+  }) {
+    final oauth = _oauthHelpers(
+      includeDiscord: includeDiscord,
+      includeGoogle: includeGoogle,
+      includeApple: includeApple,
+      includeMicrosoft: includeMicrosoft,
+    );
 
     return '''
 // GÉNÉRÉ par TinyBase codegen — ne pas éditer à la main.
 // Régénère depuis l'admin TinyBase (Réglages → Code client).
 //
 // pubspec.yaml :
-//   tinybase_client:
-//     path: ../tinybase_client   # ou dépendance pub quand publié
+//   tinybase_client: ...
 //   provider: ^6.1.2
 import 'package:flutter/foundation.dart';
 import 'package:tinybase_client/tinybase_client.dart';
@@ -97,20 +135,7 @@ class AuthProvider extends ChangeNotifier {
 
   Future<bool> login({required String email, required String password}) =>
       _run(() => client.auth.login(email: email, password: password));
-${browserBits.join()}${hasBrowser ? '''
-  Future<bool> handleOAuthCallback(Uri callbackUri) async {
-    _errorMessage = null;
-    try {
-      final session = await client.auth.handleOAuthCallback(callbackUri);
-      notifyListeners();
-      return session != null;
-    } on TinyBaseException catch (e) {
-      _errorMessage = e.message;
-      notifyListeners();
-      return false;
-    }
-  }
-''' : ''}${nativeBits.join()}
+$oauth
   Future<void> logout() async {
     await client.auth.logout();
     notifyListeners();
@@ -127,6 +152,169 @@ ${browserBits.join()}${hasBrowser ? '''
       notifyListeners();
       return false;
     }
+  }
+}
+''';
+  }
+
+  static String _oauthHelpersRiverpod({
+    required bool includeDiscord,
+    required bool includeGoogle,
+    required bool includeApple,
+    required bool includeMicrosoft,
+  }) {
+    final bits = <String>[];
+    if (includeDiscord) {
+      bits.add('''
+  Uri discordAuthorizeUrl(String target) =>
+      _client.auth.authorizeUrl(OAuthProvider.discord, target: target);
+''');
+    }
+    if (includeMicrosoft) {
+      bits.add('''
+  Uri microsoftAuthorizeUrl(String target) =>
+      _client.auth.authorizeUrl(OAuthProvider.microsoft, target: target);
+''');
+    }
+    if (includeDiscord || includeMicrosoft) {
+      bits.add('''
+  Future<bool> handleOAuthCallback(Uri callbackUri) async {
+    state = state.copyWith(clearError: true);
+    try {
+      final session = await _client.auth.handleOAuthCallback(callbackUri);
+      state = state.copyWith();
+      return session != null;
+    } on TinyBaseException catch (e) {
+      state = state.copyWith(errorMessage: e.message);
+      return false;
+    }
+  }
+''');
+    }
+    if (includeGoogle) {
+      bits.add('''
+  /// Après `google_sign_in` : passe l'`idToken` obtenu.
+  Future<bool> signInWithGoogleIdToken(String idToken) =>
+      _run(() => _client.auth.signInWithIdToken(OAuthProvider.google, idToken: idToken));
+''');
+    }
+    if (includeApple) {
+      bits.add('''
+  /// Après `sign_in_with_apple` : passe l'`identityToken`.
+  Future<bool> signInWithAppleIdToken(String idToken) =>
+      _run(() => _client.auth.signInWithIdToken(OAuthProvider.apple, idToken: idToken));
+''');
+    }
+    return bits.join();
+  }
+
+  static String _authRiverpod({
+    required bool includeDiscord,
+    required bool includeGoogle,
+    required bool includeApple,
+    required bool includeMicrosoft,
+  }) {
+    final oauth = _oauthHelpersRiverpod(
+      includeDiscord: includeDiscord,
+      includeGoogle: includeGoogle,
+      includeApple: includeApple,
+      includeMicrosoft: includeMicrosoft,
+    );
+
+    return '''
+// GÉNÉRÉ par TinyBase codegen — ne pas éditer à la main.
+// Régénère depuis l'admin TinyBase (Réglages → Code client).
+//
+// pubspec.yaml (app) :
+//   flutter_riverpod: ^2.6.1
+//   riverpod_annotation: ^2.6.1
+//   tinybase_client: ...
+// dev_dependencies:
+//   riverpod_generator: ^2.6.1
+//   build_runner: ^2.4.13
+//
+// Puis : dart run build_runner build
+//
+// Au démarrage :
+//   ProviderScope(
+//     overrides: [
+//       tinyBaseClientProvider.overrideWithValue(
+//         TinyBaseClient(baseUrl: 'https://...'),
+//       ),
+//     ],
+//     child: MyApp(),
+//   )
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:tinybase_client/tinybase_client.dart';
+
+part 'auth_provider.g.dart';
+
+/// Client TinyBase — à overrider dans [ProviderScope] (voir en-tête).
+@Riverpod(keepAlive: true)
+TinyBaseClient tinyBaseClient(Ref ref) {
+  throw UnimplementedError(
+    'Override tinyBaseClientProvider dans ProviderScope '
+    '(tinyBaseClientProvider.overrideWithValue(...)).',
+  );
+}
+
+/// Session utilisateur — wrap [TinyBaseClient.auth] (refresh JWT auto inclus).
+@Riverpod(keepAlive: true)
+class Auth extends _\$Auth {
+  TinyBaseClient get _client => ref.read(tinyBaseClientProvider);
+
+  TinyBaseUser? get user => _client.auth.user;
+  String? get accessToken => _client.auth.accessToken;
+  bool get isAuthenticated => _client.auth.isAuthenticated;
+
+  @override
+  AuthUiState build() => const AuthUiState(isRestoring: true);
+
+  Future<void> tryRestoreSession() async {
+    await _client.auth.restore();
+    state = state.copyWith(isRestoring: false);
+  }
+
+  Future<bool> register({required String email, required String password}) =>
+      _run(() => _client.auth.register(email: email, password: password));
+
+  Future<bool> login({required String email, required String password}) =>
+      _run(() => _client.auth.login(email: email, password: password));
+$oauth
+  Future<void> logout() async {
+    await _client.auth.logout();
+    state = state.copyWith(clearError: true);
+  }
+
+  Future<bool> _run(Future<void> Function() call) async {
+    state = state.copyWith(clearError: true);
+    try {
+      await call();
+      // Force un rebuild pour exposer user / isAuthenticated à jour.
+      state = state.copyWith();
+      return true;
+    } on TinyBaseException catch (e) {
+      state = state.copyWith(errorMessage: e.message);
+      return false;
+    }
+  }
+}
+
+class AuthUiState {
+  final bool isRestoring;
+  final String? errorMessage;
+
+  const AuthUiState({this.isRestoring = false, this.errorMessage});
+
+  AuthUiState copyWith({
+    bool? isRestoring,
+    String? errorMessage,
+    bool clearError = false,
+  }) {
+    return AuthUiState(
+      isRestoring: isRestoring ?? this.isRestoring,
+      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+    );
   }
 }
 ''';

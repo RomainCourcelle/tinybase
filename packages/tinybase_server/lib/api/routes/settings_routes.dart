@@ -49,13 +49,15 @@ Router buildSettingsRoutes(SettingsService settingsService) {
   router.get('/codegen', (Request request) async {
     try {
       final appSettings = await settingsService.get();
+      final style = StateManagementStyle.parse(request.url.queryParameters['style']);
       final files = AuthCodegenService.generate(
         includeDiscord: appSettings.discord.enabled,
         includeGoogle: appSettings.google.enabled,
         includeApple: appSettings.apple.enabled,
         includeMicrosoft: appSettings.microsoft.enabled,
+        style: style,
       ).map((f) => f.toJson()).toList();
-      return jsonResponse({'files': files});
+      return jsonResponse({'files': files, 'style': style.apiValue});
     } catch (e) {
       return errorResponse(e);
     }

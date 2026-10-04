@@ -643,26 +643,73 @@ void main() {
   });
 
   group('7. Génération de code', () {
-    test('codegen par collection renvoie modèle + repository + provider', () async {
+    test('codegen par collection renvoie modèle + repository + provider (défaut)', () async {
       final (status, body) = await client.get('/api/admin/collections/notes/codegen', token: _sharedAdminToken);
       expect(status, 200);
-      final files = (body['files'] as List).map((f) => f['path'] as String).toList();
-      expect(files, contains('lib/models/notes.dart'));
-      expect(files, contains('lib/repositories/notes_repository.dart'));
-      expect(files, contains('lib/providers/notes_provider.dart'));
+      expect(body['style'], 'provider');
+      final files = (body['files'] as List).map((f) => f as Map<String, dynamic>).toList();
+      final paths = files.map((f) => f['path'] as String).toList();
+      expect(paths, contains('lib/models/notes.dart'));
+      expect(paths, contains('lib/repositories/notes_repository.dart'));
+      expect(paths, contains('lib/providers/notes_provider.dart'));
+      final providerContent =
+          files.firstWhere((f) => f['path'] == 'lib/providers/notes_provider.dart')['content'] as String;
+      expect(providerContent, contains('ChangeNotifier'));
+      expect(providerContent, isNot(contains('@riverpod')));
     });
 
-    test('codegen Auth renvoie AppUser + AuthRepository + AuthProvider, et le contenu appelle bien /api/auth/me', () async {
+    test('codegen collection style=riverpod renvoie un notifier annoté', () async {
+      final (status, body) = await client.get(
+        '/api/admin/collections/notes/codegen?style=riverpod',
+        token: _sharedAdminToken,
+      );
+      expect(status, 200);
+      expect(body['style'], 'riverpod');
+      final files = (body['files'] as List).map((f) => f as Map<String, dynamic>).toList();
+      final providerContent =
+          files.firstWhere((f) => f['path'] == 'lib/providers/notes_provider.dart')['content'] as String;
+      expect(providerContent, contains('@riverpod'));
+      expect(providerContent, contains('NotesNotifier'));
+      expect(providerContent, contains("part 'notes_provider.g.dart';"));
+      expect(providerContent, isNot(contains('ChangeNotifier')));
+    });
+
+    test('codegen refuse un style inconnu', () async {
+      final (status, body) = await client.get(
+        '/api/admin/collections/notes/codegen?style=bloc',
+        token: _sharedAdminToken,
+      );
+      expect(status, 400);
+      expect(body['error'].toString(), contains('style'));
+    });
+
+    test('codegen Auth renvoie AuthProvider (ChangeNotifier) par défaut', () async {
       final (status, body) = await client.get('/api/admin/settings/codegen', token: _sharedAdminToken);
       expect(status, 200);
+      expect(body['style'], 'provider');
       final files = (body['files'] as List).map((f) => f as Map<String, dynamic>).toList();
       final paths = files.map((f) => f['path']).toList();
-      expect(paths, contains('lib/models/app_user.dart'));
-      expect(paths, contains('lib/repositories/auth_repository.dart'));
       expect(paths, contains('lib/providers/auth_provider.dart'));
+      final providerContent =
+          files.firstWhere((f) => f['path'] == 'lib/providers/auth_provider.dart')['content'] as String;
+      expect(providerContent, contains('class AuthProvider extends ChangeNotifier'));
+      expect(providerContent, contains('tinybase_client'));
+    });
 
-      final repoContent = files.firstWhere((f) => f['path'] == 'lib/repositories/auth_repository.dart')['content'] as String;
-      expect(repoContent, contains('/api/auth/me'));
+    test('codegen Auth style=riverpod renvoie Auth annoté + tinyBaseClientProvider', () async {
+      final (status, body) = await client.get(
+        '/api/admin/settings/codegen?style=riverpod',
+        token: _sharedAdminToken,
+      );
+      expect(status, 200);
+      expect(body['style'], 'riverpod');
+      final files = (body['files'] as List).map((f) => f as Map<String, dynamic>).toList();
+      final providerContent =
+          files.firstWhere((f) => f['path'] == 'lib/providers/auth_provider.dart')['content'] as String;
+      expect(providerContent, contains('@Riverpod(keepAlive: true)'));
+      expect(providerContent, contains('tinyBaseClient'));
+      expect(providerContent, contains('class Auth extends'));
+      expect(providerContent, contains("part 'auth_provider.g.dart';"));
     });
 
     test('codegen refuse sans jeton admin (protégé comme le reste de /api/admin)', () async {
@@ -670,17 +717,17 @@ void main() {
       expect(status, 403);
     });
 
-    test('codegen Auth n\'inclut PAS le login Discord tant qu\'il n\'est pas configuré', () async {
+    test('codegen Auth n\'inclut PAS Discord tant qu\'il n\'est pas configuré', () async {
       final (status, body) = await client.get('/api/admin/settings/codegen', token: _sharedAdminToken);
       expect(status, 200);
       final files = (body['files'] as List).map((f) => f as Map<String, dynamic>).toList();
-      final repoContent = files.firstWhere((f) => f['path'] == 'lib/repositories/auth_repository.dart')['content'] as String;
-      final providerContent = files.firstWhere((f) => f['path'] == 'lib/providers/auth_provider.dart')['content'] as String;
-      expect(repoContent, isNot(contains('discordAuthorizeUrl')));
-      expect(providerContent, isNot(contains('handleDiscordCallback')));
+      final providerContent =
+          files.firstWhere((f) => f['path'] == 'lib/providers/auth_provider.dart')['content'] as String;
+      expect(providerContent, isNot(contains('discordAuthorizeUrl')));
+      expect(providerContent, isNot(contains('handleOAuthCallback')));
     });
 
-    test('codegen Auth inclut le login Discord une fois configuré (régression : générait tout, tout le temps)', () async {
+    test('codegen Auth inclut Discord une fois configuré', () async {
       final (settingsStatus, _) = await client.patch(
         '/api/admin/settings',
         json: {'discordClientId': 'test-client-id', 'discordClientSecret': 'test-client-secret'},
@@ -691,12 +738,11 @@ void main() {
       final (status, body) = await client.get('/api/admin/settings/codegen', token: _sharedAdminToken);
       expect(status, 200);
       final files = (body['files'] as List).map((f) => f as Map<String, dynamic>).toList();
-      final repoContent = files.firstWhere((f) => f['path'] == 'lib/repositories/auth_repository.dart')['content'] as String;
-      final providerContent = files.firstWhere((f) => f['path'] == 'lib/providers/auth_provider.dart')['content'] as String;
-      expect(repoContent, contains('discordAuthorizeUrl'));
-      expect(providerContent, contains('handleDiscordCallback'));
+      final providerContent =
+          files.firstWhere((f) => f['path'] == 'lib/providers/auth_provider.dart')['content'] as String;
+      expect(providerContent, contains('discordAuthorizeUrl'));
+      expect(providerContent, contains('handleOAuthCallback'));
 
-      // Remis à l'état initial pour ne pas affecter un test qui s'exécuterait après.
       final (disableStatus, _) = await client.patch(
         '/api/admin/settings',
         json: {'disableDiscord': true},

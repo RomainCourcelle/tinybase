@@ -1,11 +1,9 @@
 name: tinybase_codegen
 description: >
   Génère, à partir d'une CollectionDefinition (tinybase_shared), le modèle
-  Dart + repository + provider (pattern Provider/ChangeNotifier) d'une
-  collection TinyBase. Utilisé par la route API
-  POST /api/admin/collections/:name/codegen (tinybase_server), pour que
-  nexus_code_launcher puisse générer ces fichiers directement pendant le
-  scaffolding d'un projet.
+  Dart + repository + couche state (Provider/ChangeNotifier ou Riverpod
+  annotations) d'une collection TinyBase. Utilisé par la route API
+  GET /api/admin/collections/:name/codegen?style=provider|riverpod.
 version: 0.1.0
 publish_to: 'none'
 
@@ -19,3 +17,5 @@ dependencies:
 dev_dependencies:
   lints: ^5.0.0
   test: ^1.25.8
+
+# Tests unitaires des générateurs : packages/tinybase_codegen/test/

@@ -5,6 +5,7 @@ import '../services/api_client.dart';
 import '../theme/app_colors.dart';
 import '../widgets/ui_bits.dart';
 import 'codegen_dialog.dart';
+import 'codegen_style_dialog.dart';
 
 /// Snippet pubspec pour une app hors monorepo (Railway = serveur, GitHub = package).
 const _kClientPubspecSnippet = '''
@@ -240,17 +241,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _generateAuthCode() async {
+    final style = await showCodegenStyleDialog(context);
+    if (style == null || !mounted) return;
+
     setState(() {
       _generatingAuth = true;
       _error = null;
     });
     try {
-      final files = await widget.client.authCodegen();
+      final files = await widget.client.authCodegen(style: style);
       if (!mounted) return;
       setState(() => _generatingAuth = false);
       await showDialog(
         context: context,
-        builder: (_) => CodegenDialog(title: 'Authentification', files: files),
+        builder: (_) => CodegenDialog(title: 'Authentification ($style)', files: files),
       );
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -466,7 +470,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Génère un AuthProvider qui wrap tinybase_client.',
+                            'Génère Auth (Provider ou Riverpod) qui wrap tinybase_client.',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                           const SizedBox(height: 12),

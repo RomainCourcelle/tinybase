@@ -9,6 +9,7 @@ import '../services/api_client.dart';
 import '../theme/app_colors.dart';
 import '../widgets/ui_bits.dart';
 import 'codegen_dialog.dart';
+import 'codegen_style_dialog.dart';
 import 'collection_form_screen.dart';
 import 'records_screen.dart';
 import 'settings_dialog.dart';
@@ -158,12 +159,14 @@ class _HomeShellBodyState extends State<_HomeShellBody> {
       return;
     }
     if (action == 'codegen') {
+      final style = await showCodegenStyleDialog(context);
+      if (style == null || !context.mounted) return;
       try {
-        final files = await provider.client.codegen(col.name);
+        final files = await provider.client.codegen(col.name, style: style);
         if (!context.mounted) return;
         showDialog(
           context: context,
-          builder: (_) => CodegenDialog(title: col.name, files: files),
+          builder: (_) => CodegenDialog(title: '${col.name} ($style)', files: files),
         );
       } on ApiException catch (e) {
         if (!context.mounted) return;
