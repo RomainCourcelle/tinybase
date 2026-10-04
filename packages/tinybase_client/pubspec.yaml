@@ -1,12 +1,24 @@
 name: tinybase_client
 description: >
-  Client Flutter/Dart pour TinyBase — auth (email + OAuth), refresh JWT
-  automatique, CRUD générique sur les collections.
+  Flutter/Dart SDK for the TinyBase backend — email/OAuth auth, automatic JWT
+  refresh, and generic collection CRUD. Not affiliated with the JavaScript
+  TinyBase library (tinybase.org).
 version: 0.1.0
-publish_to: 'none'
+homepage: https://github.com/RomainCourcelle/tinybase
+repository: https://github.com/RomainCourcelle/tinybase
+issue_tracker: https://github.com/RomainCourcelle/tinybase/issues
+documentation: https://github.com/RomainCourcelle/tinybase/tree/main/packages/tinybase_client
+
+topics:
+  - flutter
+  - backend
+  - auth
+  - rest
+  - jwt
 
 environment:
   sdk: ^3.5.0
+  flutter: '>=3.24.0'
 
 dependencies:
   flutter:

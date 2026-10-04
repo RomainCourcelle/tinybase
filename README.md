@@ -1,0 +1,28 @@
+# TinyBase
+
+Backend léger (SQLite) + admin Flutter Web + client Dart/Flutter + codegen.
+
+## Packages
+
+| Package | Rôle |
+|---------|------|
+| [`tinybase_server`](packages/tinybase_server) | API HTTP (auth, collections, admin) |
+| [`tinybase_client`](packages/tinybase_client) | SDK Flutter publié sur [pub.dev](https://pub.dev/packages/tinybase_client) |
+| [`tinybase_admin`](packages/tinybase_admin) | Panel d’admin (Flutter Web) |
+| [`tinybase_codegen`](packages/tinybase_codegen) | Génération modèles / Provider / Riverpod |
+| [`tinybase_shared`](packages/tinybase_shared) | Types partagés |
+
+## Railway (prod)
+
+Variables importantes :
+
+- `DB_PATH` → chemin **sur le volume** (ex. `/data/tinybase.db`)
+- Volume monté sur le même préfixe (ex. `/data`)
+- `PORT` injecté par Railway
+- `JWT_SECRET` recommandé si plusieurs instances (sinon fichier `.jwt_secret` à côté de la DB)
+
+Sans `DB_PATH` sur volume, la base est perdue à chaque redeploy.
+
+## License
+
+MIT

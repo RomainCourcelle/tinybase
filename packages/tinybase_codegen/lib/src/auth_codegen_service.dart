@@ -226,9 +226,8 @@ $oauth
 // Régénère depuis l'admin TinyBase (Réglages → Code client).
 //
 // Dépendances (sans versions — Pub résout le dernier compatible) :
-//   flutter pub add flutter_riverpod riverpod_annotation
+//   flutter pub add flutter_riverpod riverpod_annotation tinybase_client
 //   flutter pub add dev:build_runner dev:riverpod_generator
-//   + tinybase_client (git)
 //
 // Puis : dart run build_runner build
 //
