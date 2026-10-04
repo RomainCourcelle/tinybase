@@ -76,10 +76,12 @@ class FieldMapping {
 
   /// Expression Dart sérialisant le champ du modèle (nommé [fieldName])
   /// pour le body JSON envoyé au serveur (create/update).
-  String toJsonExpr(String fieldName) {
+  String toJsonExpr(String fieldName, {required bool required}) {
     switch (type) {
       case FieldType.date:
-        return '$fieldName?.toIso8601String()';
+        return required
+            ? '$fieldName.toIso8601String()'
+            : '$fieldName?.toIso8601String()';
       case FieldType.number:
       case FieldType.boolean:
       case FieldType.json:

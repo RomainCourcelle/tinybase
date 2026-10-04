@@ -72,7 +72,9 @@ class ModelGenerator {
     for (final field in collection.fields) {
       final camel = toCamelCase(field.name);
       final mapping = FieldMapping(field.type);
-      buffer.writeln("        '${field.name}': ${mapping.toJsonExpr(camel)},");
+      buffer.writeln(
+        "        '${field.name}': ${mapping.toJsonExpr(camel, required: field.required)},",
+      );
     }
     buffer.writeln('      };');
     buffer.writeln();
