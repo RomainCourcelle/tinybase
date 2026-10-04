@@ -2,31 +2,61 @@ import 'dart:convert';
 
 import 'client.dart';
 
-enum OAuthProvider { discord, google, apple, microsoft }
+/// Supported OAuth providers.
+enum OAuthProvider {
+  /// Discord browser OAuth.
+  discord,
 
+  /// Google native idToken flow.
+  google,
+
+  /// Apple native identityToken flow.
+  apple,
+
+  /// Microsoft browser OAuth.
+  microsoft,
+}
+
+/// Authenticated TinyBase user.
 class TinyBaseUser {
+  /// User id.
   final String id;
+
+  /// User email.
   final String email;
+
+  /// Creates a user.
   const TinyBaseUser({required this.id, required this.email});
 
+  /// Parses a user from API JSON.
   factory TinyBaseUser.fromJson(Map<String, dynamic> json) => TinyBaseUser(
         id: json['id'] as String,
         email: json['email'] as String,
       );
 
+  /// Serializes this user to JSON.
   Map<String, dynamic> toJson() => {'id': id, 'email': email};
 }
 
+/// Auth session returned by login/register/OAuth.
 class TinyBaseSession {
+  /// Authenticated user.
   final TinyBaseUser user;
+
+  /// Short-lived access JWT.
   final String accessToken;
+
+  /// Long-lived refresh JWT.
   final String refreshToken;
+
+  /// Creates a session.
   const TinyBaseSession({
     required this.user,
     required this.accessToken,
     required this.refreshToken,
   });
 
+  /// Parses a session from API JSON.
   factory TinyBaseSession.fromJson(Map<String, dynamic> json) => TinyBaseSession(
         user: TinyBaseUser.fromJson(json['user'] as Map<String, dynamic>),
         accessToken: json['accessToken'] as String,
@@ -34,19 +64,25 @@ class TinyBaseSession {
       );
 }
 
-/// Auth email/password + OAuth (browser Discord/Microsoft, native Google/Apple).
+/// Email/password auth plus OAuth helpers.
 class TinyBaseAuth {
   final TinyBaseClient _client;
   TinyBaseUser? _user;
   String? _accessToken;
 
+  /// Creates the auth helper bound to [client].
   TinyBaseAuth(this._client);
 
+  /// Current user, if authenticated.
   TinyBaseUser? get user => _user;
+
+  /// Current access token in memory (may be null before [restore]/
   String? get accessToken => _accessToken;
+
+  /// Whether an access token is currently held in memory.
   bool get isAuthenticated => _accessToken != null;
 
-  /// Restaure la session depuis [TokenStore] (refresh si besoin).
+  /// Restores a session from [TokenStore] (refreshes if needed).
   Future<bool> restore() async {
     final refresh = await _client.tokenStore.readRefreshToken();
     if (refresh == null) return false;
@@ -59,6 +95,7 @@ class TinyBaseAuth {
     }
   }
 
+  /// Registers a new account and persists the session.
   Future<TinyBaseSession> register({required String email, required String password}) async {
     final json = await _client.requestJson(
       'POST',
@@ -69,6 +106,7 @@ class TinyBaseAuth {
     return _persistSession(TinyBaseSession.fromJson(json as Map<String, dynamic>));
   }
 
+  /// Logs in and persists the session.
   Future<TinyBaseSession> login({required String email, required String password}) async {
     final json = await _client.requestJson(
       'POST',
@@ -79,6 +117,7 @@ class TinyBaseAuth {
     return _persistSession(TinyBaseSession.fromJson(json as Map<String, dynamic>));
   }
 
+  /// Fetches `/api/auth/me` and updates the in-memory user.
   Future<TinyBaseUser> me() async {
     final json = await _client.requestJson('GET', '/api/auth/me');
     final user = TinyBaseUser.fromJson(json as Map<String, dynamic>);
@@ -86,13 +125,14 @@ class TinyBaseAuth {
     return user;
   }
 
+  /// Clears the in-memory session and [TokenStore].
   Future<void> logout() async {
     _user = null;
     _accessToken = null;
     await _client.tokenStore.clear();
   }
 
-  /// URL à ouvrir (Custom Tab / navigateur externe) pour Discord ou Microsoft.
+  /// Browser authorize URL for Discord or Microsoft (`target` = deep-link scheme).
   Uri authorizeUrl(OAuthProvider provider, {required String target}) {
     if (provider != OAuthProvider.discord && provider != OAuthProvider.microsoft) {
       throw TinyBaseException(
@@ -104,7 +144,7 @@ class TinyBaseAuth {
     return _client.uri(path, {'target': target});
   }
 
-  /// Parse un deep-link de retour OAuth browser ; persiste la session si tokens présents.
+  /// Parses an OAuth browser callback deep-link and persists the session.
   Future<TinyBaseSession?> handleOAuthCallback(Uri callbackUri) async {
     final access = callbackUri.queryParameters['accessToken'];
     final refresh = callbackUri.queryParameters['refreshToken'];
@@ -125,7 +165,7 @@ class TinyBaseAuth {
     return session;
   }
 
-  /// Échange un idToken natif (google_sign_in / sign_in_with_apple) contre une session.
+  /// Exchanges a native Google/Apple idToken for a TinyBase session.
   Future<TinyBaseSession> signInWithIdToken(OAuthProvider provider, {required String idToken}) async {
     if (provider != OAuthProvider.google && provider != OAuthProvider.apple) {
       throw TinyBaseException(0, 'signInWithIdToken est pour google/apple uniquement');
@@ -139,7 +179,7 @@ class TinyBaseAuth {
     return _persistSession(TinyBaseSession.fromJson(json as Map<String, dynamic>));
   }
 
-  /// Appelé par [TinyBaseClient.send] sur 401. Retourne false si impossible.
+  /// Called by [TinyBaseClient.send] on `401`. Returns `false` if refresh fails.
   Future<bool> tryRefresh() async {
     final refresh = await _client.tokenStore.readRefreshToken();
     if (refresh == null) return false;

@@ -1,20 +1,32 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persistance access + refresh tokens (et éventuellement l'user sérialisé).
+/// Persistance of access/refresh tokens (and optional serialized user JSON).
 abstract class TokenStore {
+  /// Returns the stored access token, or `null` if none.
   Future<String?> readAccessToken();
+
+  /// Returns the stored refresh token, or `null` if none.
   Future<String?> readRefreshToken();
+
+  /// Returns the stored user JSON payload, or `null` if none.
   Future<String?> readUserJson();
+
+  /// Persists a full session (access, refresh, user JSON).
   Future<void> writeSession({
     required String accessToken,
     required String refreshToken,
     required String userJson,
   });
+
+  /// Clears all stored session data.
   Future<void> clear();
 }
 
-/// Store en mémoire — tests et environnements sans SharedPreferences.
+/// In-memory [TokenStore] for tests and non-Flutter environments.
 class InMemoryTokenStore implements TokenStore {
+  /// Creates an empty in-memory store.
+  InMemoryTokenStore();
+
   String? _access;
   String? _refresh;
   String? _user;
@@ -47,8 +59,11 @@ class InMemoryTokenStore implements TokenStore {
   }
 }
 
-/// Implémentation Flutter via [SharedPreferences] (localStorage sur Web).
+/// Flutter [TokenStore] backed by [SharedPreferences] (localStorage on web).
 class SharedPreferencesTokenStore implements TokenStore {
+  /// Creates a SharedPreferences-backed store.
+  SharedPreferencesTokenStore();
+
   static const _kAccess = 'tinybase_client.access_token';
   static const _kRefresh = 'tinybase_client.refresh_token';
   static const _kUser = 'tinybase_client.user_json';

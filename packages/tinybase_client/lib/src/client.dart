@@ -6,22 +6,37 @@ import 'auth.dart';
 import 'collection.dart';
 import 'token_store.dart';
 
+/// Error returned by the TinyBase API or the client itself.
 class TinyBaseException implements Exception {
+  /// HTTP status code (`0` for client-side / network errors).
   final int statusCode;
+
+  /// Human-readable error message.
   final String message;
+
+  /// Creates an API or client error.
   TinyBaseException(this.statusCode, this.message);
+
   @override
   String toString() => message;
 }
 
-/// Point d'entrée du SDK TinyBase.
+/// Entry point of the TinyBase Flutter/Dart SDK.
 class TinyBaseClient {
+  /// API base URL without trailing slash.
   final String baseUrl;
+
+  /// Persistence layer for JWT tokens.
   final TokenStore tokenStore;
+
   final http.Client _http;
 
+  /// Auth API (login, register, OAuth, restore).
   late final TinyBaseAuth auth = TinyBaseAuth(this);
 
+  /// Creates a client for [baseUrl].
+  ///
+  /// Defaults to [SharedPreferencesTokenStore] and a new [http.Client].
   TinyBaseClient({
     required String baseUrl,
     TokenStore? tokenStore,
@@ -30,15 +45,17 @@ class TinyBaseClient {
         tokenStore = tokenStore ?? SharedPreferencesTokenStore(),
         _http = httpClient ?? http.Client();
 
+  /// Returns a CRUD helper for the named collection.
   TinyBaseCollection collection(String name) => TinyBaseCollection(this, name);
 
+  /// Builds an absolute [Uri] for [path] with optional [query] parameters.
   Uri uri(String path, [Map<String, dynamic>? query]) {
     return Uri.parse('$baseUrl$path').replace(
       queryParameters: query?.map((k, v) => MapEntry(k, v.toString())),
     );
   }
 
-  /// Requête HTTP avec Bearer + retry une fois après refresh si 401.
+  /// Sends an HTTP request with Bearer token and one refresh retry on `401`.
   Future<http.Response> send(
     String method,
     String path, {
@@ -87,7 +104,7 @@ class TinyBaseClient {
     return response;
   }
 
-  /// Décode JSON et lève [TinyBaseException] si status >= 400.
+  /// Decodes JSON and throws [TinyBaseException] when status >= 400.
   Future<dynamic> requestJson(
     String method,
     String path, {

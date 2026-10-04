@@ -1,9 +1,7 @@
 name: tinybase_client
-description: >
-  Flutter/Dart SDK for the TinyBase backend — email/OAuth auth, automatic JWT
-  refresh, and generic collection CRUD. Not affiliated with the JavaScript
-  TinyBase library (tinybase.org).
-version: 0.1.0
+description: >-
+  Flutter SDK for the TinyBase backend: auth, JWT refresh, and collection CRUD.
+version: 0.1.1
 homepage: https://github.com/RomainCourcelle/tinybase
 repository: https://github.com/RomainCourcelle/tinybase
 issue_tracker: https://github.com/RomainCourcelle/tinybase/issues

@@ -1,10 +1,20 @@
 import 'client.dart';
 
+/// Paginated list of raw JSON records.
 class RecordPage {
+  /// Records for the current page.
   final List<Map<String, dynamic>> items;
+
+  /// Total number of matching records.
   final int totalItems;
+
+  /// Current 1-based page index.
   final int page;
+
+  /// Page size used for this response.
   final int perPage;
+
+  /// Creates a page result.
   const RecordPage({
     required this.items,
     required this.totalItems,
@@ -13,12 +23,18 @@ class RecordPage {
   });
 }
 
-/// CRUD générique `/api/collections/<name>/records` avec refresh auto via le client.
+/// Generic CRUD helper for `/api/collections/<name>/records`.
 class TinyBaseCollection {
+  /// Parent client (handles auth + refresh).
   final TinyBaseClient client;
+
+  /// Collection name as defined in TinyBase admin.
   final String name;
+
+  /// Creates a collection accessor.
   TinyBaseCollection(this.client, this.name);
 
+  /// Lists records with optional pagination, sort and filter.
   Future<RecordPage> list({
     int page = 1,
     int perPage = 30,
@@ -43,21 +59,25 @@ class TinyBaseCollection {
     );
   }
 
+  /// Fetches a single record by [id].
   Future<Map<String, dynamic>> getOne(String id) async {
     final json = await client.requestJson('GET', '/api/collections/$name/records/$id');
     return Map<String, dynamic>.from(json as Map);
   }
 
+  /// Creates a record from [data].
   Future<Map<String, dynamic>> create(Map<String, dynamic> data) async {
     final json = await client.requestJson('POST', '/api/collections/$name/records', body: data);
     return Map<String, dynamic>.from(json as Map);
   }
 
+  /// Updates record [id] with [data] (PATCH).
   Future<Map<String, dynamic>> update(String id, Map<String, dynamic> data) async {
     final json = await client.requestJson('PATCH', '/api/collections/$name/records/$id', body: data);
     return Map<String, dynamic>.from(json as Map);
   }
 
+  /// Deletes record [id].
   Future<void> delete(String id) async {
     await client.requestJson('DELETE', '/api/collections/$name/records/$id');
   }
