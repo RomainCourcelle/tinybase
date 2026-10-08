@@ -127,7 +127,16 @@ class ApiClient {
   final String baseUrl;
   final String accessToken;
 
-  ApiClient({required this.baseUrl, required this.accessToken});
+  /// Appelé une seule fois sur HTTP 401 (session admin expirée).
+  final void Function()? onUnauthorized;
+
+  var _unauthorizedNotified = false;
+
+  ApiClient({
+    required this.baseUrl,
+    required this.accessToken,
+    this.onUnauthorized,
+  });
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
     final normalizedBase = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
@@ -152,8 +161,37 @@ class ApiClient {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return onSuccess(decoded);
     }
+    if (response.statusCode == 401 && !_unauthorizedNotified) {
+      _unauthorizedNotified = true;
+      onUnauthorized?.call();
+    }
     final message = (decoded is Map && decoded['error'] != null) ? decoded['error'].toString() : response.body;
     throw ApiException(response.statusCode, message);
+  }
+
+  /// Télécharge un fichier avec Bearer (preview admin).
+  Future<({List<int> bytes, String? contentType})> downloadFile(
+    String collectionName,
+    String recordId,
+    String field,
+  ) async {
+    final http.Response response;
+    try {
+      response = await http.get(
+        _uri('/api/collections/$collectionName/records/$recordId/files/$field'),
+        headers: {'Authorization': 'Bearer $accessToken'},
+      );
+    } catch (e) {
+      throw ApiException(0, 'Connexion au serveur impossible : $e');
+    }
+    if (response.statusCode == 401 && !_unauthorizedNotified) {
+      _unauthorizedNotified = true;
+      onUnauthorized?.call();
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(response.statusCode, response.body);
+    }
+    return (bytes: response.bodyBytes, contentType: response.headers['content-type']);
   }
 
   Future<bool> checkHealth() async {
@@ -459,23 +497,44 @@ class ApiClient {
     );
   }
 
-  /// SSE realtime sur une collection. Annuler le stream ferme la connexion.
+  /// SSE realtime sur une collection. Reconnect auto ; annuler pour arrêter.
   Stream<Map<String, dynamic>> subscribeRecords(String collectionName) {
     late StreamController<Map<String, dynamic>> controller;
     StreamSubscription<List<int>>? bytesSub;
+    http.Client? sseClient;
     var buffer = '';
+    var cancelled = false;
+    var attempt = 0;
 
     Future<void> connect() async {
+      if (cancelled || controller.isClosed) return;
+      await bytesSub?.cancel();
+      sseClient?.close();
+
       final request = http.Request('GET', _uri('/api/collections/$collectionName/realtime'));
       request.headers['Authorization'] = 'Bearer $accessToken';
       request.headers['Accept'] = 'text/event-stream';
 
       final http.StreamedResponse response;
       try {
-        response = await http.Client().send(request);
+        sseClient = http.Client();
+        response = await sseClient!.send(request);
       } catch (e) {
+        if (cancelled || controller.isClosed) return;
+        attempt++;
+        final delay = Duration(milliseconds: (500 * attempt).clamp(500, 15000));
+        await Future<void>.delayed(delay);
+        if (!cancelled) await connect();
+        return;
+      }
+
+      if (response.statusCode == 401) {
+        if (!_unauthorizedNotified) {
+          _unauthorizedNotified = true;
+          onUnauthorized?.call();
+        }
         if (!controller.isClosed) {
-          controller.addError(ApiException(0, 'Realtime impossible : $e'));
+          controller.addError(ApiException(401, 'Session expirée'));
           await controller.close();
         }
         return;
@@ -490,6 +549,7 @@ class ApiClient {
         return;
       }
 
+      attempt = 0;
       bytesSub = response.stream.listen(
         (chunk) {
           buffer += utf8.decode(chunk);
@@ -506,7 +566,13 @@ class ApiClient {
           if (!controller.isClosed) controller.addError(e, st);
         },
         onDone: () {
-          if (!controller.isClosed) controller.close();
+          if (cancelled || controller.isClosed) return;
+          attempt++;
+          final delay = Duration(milliseconds: (500 * attempt).clamp(500, 15000));
+          // ignore: discarded_futures
+          Future<void>.delayed(delay, () {
+            if (!cancelled) connect();
+          });
         },
       );
     }
@@ -517,7 +583,9 @@ class ApiClient {
         connect();
       },
       onCancel: () async {
+        cancelled = true;
         await bytesSub?.cancel();
+        sseClient?.close();
       },
     );
     return controller.stream;

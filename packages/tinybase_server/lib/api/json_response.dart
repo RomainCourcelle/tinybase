@@ -16,9 +16,6 @@ Response jsonResponse(Object? data, {int status = 200}) {
 }
 
 /// Traduit les exceptions métier connues en réponses HTTP appropriées.
-/// Toute autre exception remonte comme 500 avec juste `toString()` — pas
-/// d'idée de masquer les erreurs en V1 (projet perso/petite équipe), mais à
-/// muscler si TinyBase est un jour exposé plus largement.
 Response errorResponse(Object error) {
   if (error is ForbiddenException) return jsonResponse({'error': error.message}, status: 403);
   if (error is NotFoundException) return jsonResponse({'error': error.message}, status: 404);
@@ -27,7 +24,10 @@ Response errorResponse(Object error) {
   if (error is SettingsException) return jsonResponse({'error': error.message}, status: 400);
   if (error is FormatException) return jsonResponse({'error': error.message}, status: 400);
   if (error is StateError) return jsonResponse({'error': error.message}, status: 400);
-  return jsonResponse({'error': error.toString()}, status: 500);
+  // Ne pas exposer les internals (stack / types) au client.
+  // ignore: avoid_print
+  print('Unhandled error: $error');
+  return jsonResponse({'error': 'Erreur interne du serveur'}, status: 500);
 }
 
 extension RequestBody on Request {

@@ -41,6 +41,8 @@ doivent partager la même clé).
 |----------|--------|------|
 | `FILES_DIR` | `<dir(DB_PATH)>/files` | Stockage des uploads (`FieldType.file`) |
 | `MAX_FILE_SIZE` | `10485760` (10 Mo) | Taille max par fichier |
+| `MAX_MULTIPART_BODY_SIZE` | ~2× `MAX_FILE_SIZE` + 1 Mo | Plafond corps multipart |
+| `CORS_ALLOW_ORIGIN` | `*` | Origine CORS autorisée |
 | `APP_NAME` | _(vide)_ | Nom affiché dans l'admin ; sinon dérivé du domaine (`flown.com` → `Flown Base`) |
 
 ## API

@@ -122,9 +122,9 @@ Router buildMicrosoftAuthRoutes(AuthService authService, SettingsService setting
         email: msEmail,
       );
 
-      final separator = target.contains('?') ? '&' : '?';
-      final redirectTarget = '$target$separator'
-          'accessToken=${Uri.encodeQueryComponent(session.accessToken)}'
+      // Fragment (#) : tokens hors query string (moins de logs / Referer).
+      final redirectTarget = '$target'
+          '#accessToken=${Uri.encodeQueryComponent(session.accessToken)}'
           '&refreshToken=${Uri.encodeQueryComponent(session.refreshToken)}';
 
       return Response.found(redirectTarget);

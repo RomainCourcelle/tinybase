@@ -30,6 +30,18 @@ class RecordPage {
   });
 }
 
+/// Result of [TinyBaseCollection.downloadFile].
+class DownloadedFile {
+  /// Raw bytes.
+  final List<int> bytes;
+
+  /// Content-Type header when present.
+  final String? contentType;
+
+  /// Creates a download result.
+  const DownloadedFile({required this.bytes, this.contentType});
+}
+
 /// Generic CRUD helper for `/api/collections/<name>/records`.
 class TinyBaseCollection {
   /// Parent client (handles auth + refresh).
@@ -114,21 +126,52 @@ class TinyBaseCollection {
     await client.requestJson('DELETE', '/api/collections/$name/records/$id');
   }
 
-  /// Absolute URL to download a file field value.
+  /// Absolute URL to download a file field value (requires Bearer — prefer [downloadFile]).
   String fileUrl(String recordId, String field) {
     return client.uri('/api/collections/$name/records/$recordId/files/$field').toString();
   }
 
+  /// Downloads a file field with Authorization (and one refresh retry on 401).
+  Future<DownloadedFile> downloadFile(String recordId, String field) async {
+    Future<http.Response> doGet({bool retried = false}) async {
+      final headers = <String, String>{};
+      final token = await client.tokenStore.readAccessToken();
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+      final response = await client.httpClient.get(
+        client.uri('/api/collections/$name/records/$recordId/files/$field'),
+        headers: headers,
+      );
+      if (response.statusCode == 401 && !retried) {
+        final refreshed = await client.auth.tryRefresh();
+        if (refreshed) return doGet(retried: true);
+      }
+      return response;
+    }
+
+    final response = await doGet();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw TinyBaseException(response.statusCode, response.body);
+    }
+    return DownloadedFile(
+      bytes: response.bodyBytes,
+      contentType: response.headers['content-type'],
+    );
+  }
+
   /// Subscribes to realtime SSE changes on this collection.
   ///
-  /// Cancel the subscription (or the returned stream) to close the connection.
+  /// Auto-reconnects with backoff on disconnect. Cancel the subscription to stop.
   Stream<RecordChange> subscribe() {
     late StreamController<RecordChange> controller;
     http.StreamedResponse? response;
     StreamSubscription<List<int>>? bytesSub;
     var buffer = '';
+    var cancelled = false;
+    var attempt = 0;
 
     Future<void> connect({bool retried = false}) async {
+      if (cancelled || controller.isClosed) return;
+
       final headers = <String, String>{
         'Accept': 'text/event-stream',
       };
@@ -141,10 +184,11 @@ class TinyBaseCollection {
       try {
         response = await client.httpClient.send(request);
       } catch (e) {
-        if (!controller.isClosed) {
-          controller.addError(TinyBaseException(0, 'Connexion realtime impossible : $e'));
-          await controller.close();
-        }
+        if (cancelled || controller.isClosed) return;
+        attempt++;
+        final delay = Duration(milliseconds: (500 * attempt).clamp(500, 15000));
+        await Future<void>.delayed(delay);
+        if (!cancelled) await connect();
         return;
       }
 
@@ -165,6 +209,7 @@ class TinyBaseCollection {
         return;
       }
 
+      attempt = 0;
       bytesSub = response!.stream.listen(
         (chunk) {
           buffer += utf8.decode(chunk);
@@ -183,7 +228,13 @@ class TinyBaseCollection {
           if (!controller.isClosed) controller.addError(e, st);
         },
         onDone: () {
-          if (!controller.isClosed) controller.close();
+          if (cancelled || controller.isClosed) return;
+          attempt++;
+          final delay = Duration(milliseconds: (500 * attempt).clamp(500, 15000));
+          // ignore: discarded_futures
+          Future<void>.delayed(delay, () {
+            if (!cancelled) connect();
+          });
         },
         cancelOnError: false,
       );
@@ -195,6 +246,7 @@ class TinyBaseCollection {
         connect();
       },
       onCancel: () async {
+        cancelled = true;
         await bytesSub?.cancel();
       },
     );

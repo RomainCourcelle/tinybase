@@ -41,6 +41,18 @@ class Config {
     return int.tryParse(raw) ?? 10 * 1024 * 1024;
   }
 
+  /// Plafond corps multipart entier (octets). Défaut = 2 × [maxFileSize] + 1 Mo.
+  static int get maxMultipartBodySize {
+    final raw = _env('MAX_MULTIPART_BODY_SIZE');
+    if (raw != null) {
+      return int.tryParse(raw) ?? (maxFileSize * 2 + 1024 * 1024);
+    }
+    return maxFileSize * 2 + 1024 * 1024;
+  }
+
+  /// Origine CORS autorisée (`*` par défaut). Ex. `https://admin.example.com`.
+  static String get corsAllowOrigin => _env('CORS_ALLOW_ORIGIN') ?? '*';
+
   /// Dossier contenant le build Flutter Web de tinybase_admin (fichiers
   /// statiques `index.html` + `assets/` + `main.dart.js`), servi tel quel
   /// pour tout ce qui n'est pas une route `/api/*` — voir [buildApp] dans

@@ -109,18 +109,15 @@ class RecordsService {
     return rules.forRead(col.listRule, auth);
   }
 
-  /// Filtre un événement pour un abonné (règle owner-based sur listRule).
+  /// Filtre un événement pour un abonné (règle owner-based / self sur listRule).
   bool eventVisibleTo(RuleDecision decision, AuthContext auth, RecordChangeEvent event) {
     if (!decision.allowed) return false;
     if (auth.isAdmin) return true;
     if (decision.sqlPredicate == null) return true;
-    // Owner filter : le record (ou son owner) doit matcher.
+    // Sans payload (delete non enrichi) : ne pas fuiter d'ids hors scope.
     final record = event.record;
-    if (record == null) {
-      // delete sans payload : on laisse passer (le client retirera si connu).
-      return true;
-    }
-    // Prédicat typique `"owner" = ?` avec params [userId]
+    if (record == null) return false;
+    // Prédicat typique `"owner" = ?` / `"id" = ?` avec params [userId]
     if (decision.params.isEmpty) return true;
     final ownerField = _ownerFieldFromPredicate(decision.sqlPredicate!);
     if (ownerField == null) return true;
@@ -173,6 +170,7 @@ class RecordsService {
       if (field.required && coerced == null) {
         throw FormatException('Champ requis manquant : "${field.name}"');
       }
+      field.validate(coerced);
       columns.add(field.name);
       values.add(coerced);
     }
@@ -250,6 +248,7 @@ class RecordsService {
       if (field.required && coerced == null) {
         throw FormatException('Champ requis manquant : "${field.name}"');
       }
+      field.validate(coerced);
       setClauses.add('"${field.name}" = ?');
       values.add(coerced);
     }
@@ -297,10 +296,12 @@ class RecordsService {
     await db.execute('DELETE FROM "$collectionName" WHERE id = ?', [id]);
     await files.deleteRecordFiles(collectionName, id);
 
+    // Inclure le record public (id/owner) pour filtrer les abonnés SSE.
     realtime?.emit(RecordChangeEvent(
       collection: collectionName,
       action: 'delete',
       recordId: id,
+      record: _publicRecord(col, existing),
     ));
   }
 
@@ -331,7 +332,7 @@ class RecordsService {
     return (
       bytes: await file.readAsBytes(),
       storedName: storedName,
-      contentType: null,
+      contentType: FilesService.guessContentType(storedName),
     );
   }
 

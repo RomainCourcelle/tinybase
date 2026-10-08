@@ -1,3 +1,9 @@
+## 0.3.1
+
+- `TinyBaseCollection.downloadFile` (Bearer + refresh retry).
+- SSE `subscribe()` auto-reconnect with backoff.
+- OAuth callback: parse tokens from URI fragment (and query fallback).
+
 ## 0.3.0
 
 - `register(..., fields: {...})` for custom `users` profile fields.

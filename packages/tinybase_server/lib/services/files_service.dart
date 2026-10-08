@@ -66,15 +66,17 @@ class FilesService {
       throw FormatException('Fichier trop volumineux (max $maxBytes octets)');
     }
     final mimes = fieldDef?.fileMimeAllowlist ?? const [];
-    if (mimes.isNotEmpty) {
-      final ct = upload.contentType?.split(';').first.trim().toLowerCase();
-      final allowed = mimes.map((m) => m.toLowerCase()).toSet();
-      if (ct == null || !allowed.contains(ct)) {
-        throw FormatException(
-          'Type MIME non autorisé${ct != null ? ' ($ct)' : ''}. '
-          'Autorisés : ${mimes.join(', ')}',
-        );
-      }
+    if (mimes.isEmpty) return;
+
+    final headerCt = upload.contentType?.split(';').first.trim().toLowerCase();
+    final guessed = guessContentType(upload.originalName)?.toLowerCase();
+    final ct = (headerCt != null && headerCt.isNotEmpty) ? headerCt : guessed;
+
+    if (!FieldDefinition.mimeMatches(ct, mimes)) {
+      throw FormatException(
+        'Type MIME non autorisé${ct != null ? ' ($ct)' : ''}. '
+        'Autorisés : ${mimes.join(', ')}',
+      );
     }
   }
 
@@ -99,5 +101,31 @@ class FilesService {
     final cleaned = base.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     if (cleaned.isEmpty) return 'file';
     return cleaned.length > 80 ? cleaned.substring(cleaned.length - 80) : cleaned;
+  }
+
+  /// Devine un Content-Type depuis l'extension (download / upload sans header).
+  static String? guessContentType(String filename) {
+    final lower = filename.toLowerCase();
+    final dot = lower.lastIndexOf('.');
+    if (dot < 0 || dot == lower.length - 1) return null;
+    final ext = lower.substring(dot + 1);
+    const map = {
+      'png': 'image/png',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'webp': 'image/webp',
+      'gif': 'image/gif',
+      'pdf': 'application/pdf',
+      'txt': 'text/plain',
+      'json': 'application/json',
+      'csv': 'text/csv',
+      'mp4': 'video/mp4',
+      'webm': 'video/webm',
+      'mp3': 'audio/mpeg',
+      'wav': 'audio/wav',
+      'svg': 'image/svg+xml',
+      'zip': 'application/zip',
+    };
+    return map[ext];
   }
 }

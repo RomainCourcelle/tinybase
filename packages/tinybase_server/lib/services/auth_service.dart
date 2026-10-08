@@ -99,10 +99,15 @@ class AuthService {
   }
 
   /// Connexion / liaison OAuth générique (discord, google, apple, microsoft).
+  ///
+  /// [fields] : champs custom optionnels (même règles que register, mais les
+  /// champs required absents sont tolérés — le profil pourra être complété
+  /// via `PATCH /api/auth/me`).
   Future<AuthSession> loginOrRegisterWithOAuth({
     required String providerColumn,
     required String providerUserId,
     String? email,
+    Map<String, dynamic> fields = const {},
   }) async {
     final allowed = {'discord_id', 'google_id', 'apple_id', 'microsoft_id'};
     if (!allowed.contains(providerColumn)) {
@@ -143,13 +148,25 @@ class AuthService {
       throw AuthException('Les inscriptions sont actuellement fermées');
     }
 
+    // OAuth : coerce les extras fournis, sans exiger les required manquants.
+    final custom = await _coerceCustomFields(fields, forCreate: false);
+
     final id = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
     final placeholderHash = BCrypt.hashpw(_uuid.v4(), BCrypt.gensalt());
 
+    final columns = <String>['id', 'email', 'password_hash', providerColumn, 'created', 'updated'];
+    final values = <Object?>[id, effectiveEmail, placeholderHash, providerUserId, now, now];
+    for (final entry in custom.entries) {
+      columns.add(entry.key);
+      values.add(entry.value);
+    }
+
+    final placeholders = List.filled(columns.length, '?').join(', ');
+    final quoted = columns.map((c) => '"$c"').join(', ');
     await db.execute(
-      'INSERT INTO users (id, email, password_hash, "$providerColumn", created, updated) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, effectiveEmail, placeholderHash, providerUserId, now, now],
+      'INSERT INTO users ($quoted) VALUES ($placeholders)',
+      values,
     );
 
     return await _issueSession(id, effectiveEmail);
@@ -270,6 +287,7 @@ class AuthService {
       if (field.required && coerced == null) {
         throw FormatException('Champ requis manquant : "$key"');
       }
+      field.validate(coerced);
       out[key] = coerced;
     }
 

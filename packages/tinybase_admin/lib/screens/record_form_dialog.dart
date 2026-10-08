@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -81,6 +83,45 @@ class _RecordFormDialogState extends State<RecordFormDialog> {
       });
     } catch (e) {
       setState(() => _error = 'Impossible de lire le fichier : $e');
+    }
+  }
+
+  Future<void> _previewFile(String fieldName, String storedName) async {
+    final recordId = widget.existing?['id'] as String?;
+    if (recordId == null) return;
+    final connection = context.read<ConnectionProvider>();
+    try {
+      final file = await connection.client.downloadFile(
+        widget.collection.name,
+        recordId,
+        fieldName,
+      );
+      if (!mounted) return;
+      final ct = file.contentType ?? '';
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(storedName),
+          content: SizedBox(
+            width: 420,
+            child: ct.startsWith('image/')
+                ? Image.memory(Uint8List.fromList(file.bytes), fit: BoxFit.contain)
+                : SelectableText(
+                    'Type : ${ct.isEmpty ? 'inconnu' : ct}\n'
+                    'Taille : ${file.bytes.length} octets\n'
+                    'URL : ${connection.client.fileUrl(widget.collection.name, recordId, fieldName)}',
+                  ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossible de charger le fichier : $e')),
+      );
     }
   }
 
@@ -269,17 +310,9 @@ class _RecordFormDialogState extends State<RecordFormDialog> {
                 ),
                 if (downloadUrl != null)
                   IconButton(
-                    tooltip: 'Ouvrir',
+                    tooltip: 'Aperçu',
                     icon: const Icon(Icons.open_in_new, size: 18),
-                    onPressed: () {
-                      // Sur web, l'admin ouvre l'URL (Bearer non transmis —
-                      // l'admin a souvent des règles publiques ou on
-                      // s'appuie sur le token en session navigateur non
-                      // applicable ici). On affiche l'URL pour copier.
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(downloadUrl)),
-                      );
-                    },
+                    onPressed: () => _previewFile(field.name, existing!),
                   ),
                 TextButton(onPressed: () => _pickFile(field.name), child: const Text('Choisir')),
                 if ((existing != null && existing.isNotEmpty && !cleared) || picked != null)

@@ -5,6 +5,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:mime/mime.dart';
 import 'package:shelf/shelf.dart';
 
+import '../core/config.dart';
 import '../services/files_service.dart';
 
 /// Corps de requête records : soit JSON pur, soit multipart (data + fichiers).
@@ -37,19 +38,33 @@ Future<RecordRequestBody> _readMultipart(Request request, String contentType) as
     throw const FormatException('Boundary multipart manquant');
   }
 
+  final maxBody = Config.maxMultipartBodySize;
   final transformer = MimeMultipartTransformer(boundary);
-  final parts = await request.read().transform(transformer).toList();
+  // MimeMultipartTransformer : bind le body plutôt que Stream.transform.
+  final parts = transformer.bind(request.read());
 
   final data = <String, dynamic>{};
   final files = <String, UploadedFile>{};
+  var totalBytes = 0;
 
-  for (final part in parts) {
+  await for (final part in parts) {
     final disposition = part.headers['content-disposition'];
     if (disposition == null) continue;
     final name = _headerParam(disposition, 'name');
     if (name == null) continue;
     final filename = _headerParam(disposition, 'filename');
-    final bytes = await part.fold<BytesBuilder>(BytesBuilder(), (b, d) => b..add(d)).then((b) => b.takeBytes());
+
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in part) {
+      totalBytes += chunk.length;
+      if (totalBytes > maxBody) {
+        throw FormatException(
+          'Corps multipart trop volumineux (max $maxBody octets)',
+        );
+      }
+      builder.add(chunk);
+    }
+    final bytes = builder.takeBytes();
 
     if (filename != null) {
       files[name] = UploadedFile(

@@ -2,7 +2,7 @@ name: tinybase_client
 description: >-
   Flutter SDK for the TinyBase backend: auth, JWT refresh, collection CRUD,
   file uploads, and realtime SSE.
-version: 0.3.0
+version: 0.3.1
 homepage: https://github.com/RomainCourcelle/tinybase
 repository: https://github.com/RomainCourcelle/tinybase
 issue_tracker: https://github.com/RomainCourcelle/tinybase/issues

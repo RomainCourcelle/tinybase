@@ -23,6 +23,7 @@
 - [x] Options `max:` / `mime:` par champ file
 - [x] Collection `users` extensible (schéma + register + PATCH /me)
 - [x] Docs Getting Started (tinybase_docs)
+- [x] Hardening 0.3.x : SSE delete ACL + ping/reconnect, MIME wildcards, download Content-Type, multipart cap, CORS env, 500 génériques, OAuth fragment tokens, validation email/url/select
 - [ ] Batch API (plusieurs opérations transactionnelles en un call)
 - [ ] Backups automatiques programmés
 - [ ] Logs/dashboard admin avancé

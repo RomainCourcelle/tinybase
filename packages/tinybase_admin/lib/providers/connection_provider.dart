@@ -46,6 +46,16 @@ class ConnectionProvider extends ChangeNotifier {
       final email = prefs.getString(_prefsEmailKey);
       if (url != null && token != null && email != null) {
         await _connect(url, token, email, persist: false);
+        // Valide le JWT admin : si 401 → déconnexion silencieuse.
+        try {
+          await _client!.listCollections();
+        } on ApiException catch (e) {
+          if (e.statusCode == 401) {
+            await disconnect();
+          }
+        } catch (_) {
+          // Réseau : on garde la session, l'UI réessayera.
+        }
       }
     } finally {
       _restoring = false;
@@ -111,7 +121,14 @@ class ConnectionProvider extends ChangeNotifier {
     final normalized = url.trim();
     _baseUrl = normalized;
     _adminEmail = email;
-    _client = ApiClient(baseUrl: normalized, accessToken: accessToken);
+    _client = ApiClient(
+      baseUrl: normalized,
+      accessToken: accessToken,
+      onUnauthorized: () {
+        // ignore: discarded_futures
+        disconnect();
+      },
+    );
     _configuredAppName = await _fetchAppName(normalized);
     _isConnecting = false;
     notifyListeners();

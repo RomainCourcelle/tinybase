@@ -67,4 +67,47 @@ class FieldDefinition {
       ...mimes.map((m) => m.trim()).where((m) => m.isNotEmpty).map((m) => 'mime:$m'),
     ];
   }
+
+  /// Valide une valeur déjà coercée (email / url / select). No-op si null.
+  void validate(Object? value) {
+    if (value == null) return;
+    final s = value.toString();
+    switch (type) {
+      case FieldType.email:
+        if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(s)) {
+          throw FormatException('Email invalide pour "$name"');
+        }
+      case FieldType.url:
+        final uri = Uri.tryParse(s);
+        if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+          throw FormatException('URL invalide pour "$name"');
+        }
+      case FieldType.select:
+        if (options.isNotEmpty && !options.contains(s)) {
+          throw FormatException(
+            'Valeur "$s" non autorisée pour "$name". Options : ${options.join(', ')}',
+          );
+        }
+      default:
+        break;
+    }
+  }
+
+  /// Match MIME exact ou wildcard (`image/*`).
+  static bool mimeMatches(String? contentType, List<String> allowlist) {
+    if (allowlist.isEmpty) return true;
+    if (contentType == null || contentType.isEmpty) return false;
+    final ct = contentType.split(';').first.trim().toLowerCase();
+    for (final raw in allowlist) {
+      final a = raw.trim().toLowerCase();
+      if (a.isEmpty) continue;
+      if (a.endsWith('/*')) {
+        final prefix = a.substring(0, a.length - 1); // "image/"
+        if (ct.startsWith(prefix)) return true;
+      } else if (a == ct) {
+        return true;
+      }
+    }
+    return false;
+  }
 }

@@ -75,8 +75,10 @@ Router buildRecordsRoutes(RecordsService recordsService, RealtimeHub realtimeHub
       if (!decision.allowed) throw ForbiddenException();
 
       StreamSubscription<RecordChangeEvent>? sub;
+      Timer? pingTimer;
       final controller = StreamController<List<int>>(
         onCancel: () async {
+          pingTimer?.cancel();
           await sub?.cancel();
         },
       );
@@ -89,6 +91,11 @@ Router buildRecordsRoutes(RecordsService recordsService, RealtimeHub realtimeHub
       });
 
       controller.add(utf8.encode(': connected\n\n'));
+      pingTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+        if (!controller.isClosed) {
+          controller.add(utf8.encode(': ping\n\n'));
+        }
+      });
 
       return Response.ok(
         controller.stream,

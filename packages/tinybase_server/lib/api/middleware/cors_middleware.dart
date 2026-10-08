@@ -1,13 +1,15 @@
 import 'package:shelf/shelf.dart';
 
-/// CORS permissif — nécessaire pour que l'admin Flutter Web (servi depuis
-/// une autre origine en dev) puisse appeler l'API. À restreindre à une
-/// origine précise en prod si besoin (voir Config).
+import '../../core/config.dart';
+
+/// CORS — origine configurable via `CORS_ALLOW_ORIGIN` (défaut `*`).
 Middleware corsMiddleware() {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
+  final origin = Config.corsAllowOrigin;
+  final headers = {
+    'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Token',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    if (origin != '*') 'Vary': 'Origin',
   };
 
   return (Handler innerHandler) {

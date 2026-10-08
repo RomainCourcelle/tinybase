@@ -184,9 +184,13 @@ class TinyBaseAuth {
   }
 
   /// Parses an OAuth browser callback deep-link and persists the session.
+  ///
+  /// Tokens are preferably in the URI fragment (`#accessToken=…`); query
+  /// params remain supported for older redirects.
   Future<TinyBaseSession?> handleOAuthCallback(Uri callbackUri) async {
-    final access = callbackUri.queryParameters['accessToken'];
-    final refresh = callbackUri.queryParameters['refreshToken'];
+    final fromFragment = _parseFragmentParams(callbackUri.fragment);
+    final access = fromFragment['accessToken'] ?? callbackUri.queryParameters['accessToken'];
+    final refresh = fromFragment['refreshToken'] ?? callbackUri.queryParameters['refreshToken'];
     if (access == null || refresh == null) return null;
     await _client.tokenStore.writeSession(
       accessToken: access,
@@ -266,5 +270,10 @@ class TinyBaseAuth {
       _user = session.user;
       return session;
     }
+  }
+
+  static Map<String, String> _parseFragmentParams(String fragment) {
+    if (fragment.isEmpty) return const {};
+    return Uri.splitQueryString(fragment);
   }
 }
