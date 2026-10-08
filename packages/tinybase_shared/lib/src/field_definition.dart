@@ -44,4 +44,27 @@ class FieldDefinition {
         'required': required,
         'options': options,
       };
+
+  // --- FieldType.file : options encodées en `max:<octets>` / `mime:<type>` ---
+
+  /// Taille max (octets) pour un champ fichier, ou null si non spécifiée.
+  int? get fileMaxSizeBytes {
+    for (final o in options) {
+      if (o.startsWith('max:')) return int.tryParse(o.substring(4));
+    }
+    return null;
+  }
+
+  /// Types MIME autorisés pour un champ fichier (liste vide = tous).
+  List<String> get fileMimeAllowlist {
+    return options.where((o) => o.startsWith('mime:')).map((o) => o.substring(5)).where((s) => s.isNotEmpty).toList();
+  }
+
+  /// Encode les options fichier dans [FieldDefinition.options].
+  static List<String> encodeFileOptions({int? maxBytes, List<String> mimes = const []}) {
+    return [
+      if (maxBytes != null && maxBytes > 0) 'max:$maxBytes',
+      ...mimes.map((m) => m.trim()).where((m) => m.isNotEmpty).map((m) => 'mime:$m'),
+    ];
+  }
 }

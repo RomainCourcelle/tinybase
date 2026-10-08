@@ -14,6 +14,9 @@ const List<String> kAuthAutoFields = [
   'email',
   'password_hash',
   'discord_id',
+  'google_id',
+  'apple_id',
+  'microsoft_id',
   'disabled',
   'created',
   'updated',
@@ -22,6 +25,21 @@ const List<String> kAuthAutoFields = [
 /// Champs jamais exposés par l'API records (même à l'admin) — secrets de
 /// stockage, pas des données métier. Voir RecordsService._publicRecord.
 const Set<String> kAuthSecretFields = {'password_hash'};
+
+/// Colonnes système de `users` non éditables comme champs custom (schéma admin).
+const Set<String> kAuthProtectedFieldNames = {
+  'id',
+  'email',
+  'password_hash',
+  'discord_id',
+  'google_id',
+  'apple_id',
+  'microsoft_id',
+  'disabled',
+  'created',
+  'updated',
+  'owner',
+};
 
 /// Noms réservés : tables système + collection auth bootstrap. Interdits à
 /// la création / au renommage.

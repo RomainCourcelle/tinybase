@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:tinybase_shared/tinybase_shared.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/config.dart';
@@ -40,17 +41,15 @@ class FilesService {
   }
 
   /// Écrit [upload] sur disque et retourne le nom stocké (valeur colonne TEXT).
+  /// [fieldDef] applique `max:` / `mime:` ; sinon plafond [Config.maxFileSize].
   Future<String> save({
     required String collection,
     required String recordId,
     required String field,
     required UploadedFile upload,
+    FieldDefinition? fieldDef,
   }) async {
-    if (upload.bytes.length > Config.maxFileSize) {
-      throw FormatException(
-        'Fichier trop volumineux (max ${Config.maxFileSize} octets)',
-      );
-    }
+    _validateUpload(upload, fieldDef);
     final dir = _recordDir(collection, recordId);
     await dir.create(recursive: true);
     final safe = _safeFileName(upload.originalName);
@@ -58,6 +57,25 @@ class FilesService {
     final file = File('${dir.path}${Platform.pathSeparator}$stored');
     await file.writeAsBytes(upload.bytes, flush: true);
     return stored;
+  }
+
+  void _validateUpload(UploadedFile upload, FieldDefinition? fieldDef) {
+    final fieldMax = fieldDef?.fileMaxSizeBytes;
+    final maxBytes = (fieldMax != null && fieldMax > 0) ? fieldMax : Config.maxFileSize;
+    if (upload.bytes.length > maxBytes) {
+      throw FormatException('Fichier trop volumineux (max $maxBytes octets)');
+    }
+    final mimes = fieldDef?.fileMimeAllowlist ?? const [];
+    if (mimes.isNotEmpty) {
+      final ct = upload.contentType?.split(';').first.trim().toLowerCase();
+      final allowed = mimes.map((m) => m.toLowerCase()).toSet();
+      if (ct == null || !allowed.contains(ct)) {
+        throw FormatException(
+          'Type MIME non autorisé${ct != null ? ' ($ct)' : ''}. '
+          'Autorisés : ${mimes.join(', ')}',
+        );
+      }
+    }
   }
 
   Future<void> deleteIfExists(String collection, String recordId, String? storedName) async {

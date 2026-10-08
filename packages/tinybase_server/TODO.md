@@ -20,6 +20,9 @@
 ## V2
 - [x] Stockage de fichiers (local d'abord, S3-compatible ensuite)
 - [x] Temps réel (SSE sur les changements de collection)
+- [x] Options `max:` / `mime:` par champ file
+- [x] Collection `users` extensible (schéma + register + PATCH /me)
+- [x] Docs Getting Started (tinybase_docs)
 - [ ] Batch API (plusieurs opérations transactionnelles en un call)
 - [ ] Backups automatiques programmés
 - [ ] Logs/dashboard admin avancé

@@ -19,6 +19,8 @@ final client = TinyBaseClient(baseUrl: 'https://your-api.example.com');
 
 await client.auth.login(email: 'a@b.c', password: 'secret');
 await client.auth.restore(); // au démarrage de l'app
+// await client.auth.register(email: '...', password: '...', fields: {'display_name': 'Ada'});
+// await client.auth.updateMe({'display_name': 'Ada Lovelace'});
 
 final notes = client.collection('notes');
 final page = await notes.list();

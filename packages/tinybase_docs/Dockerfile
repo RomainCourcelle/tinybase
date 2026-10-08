@@ -1,0 +1,14 @@
+# Build context = racine du monorepo.
+# Railway : Dockerfile Path = packages/tinybase_docs/Dockerfile
+FROM ghcr.io/cirruslabs/flutter:stable AS build
+WORKDIR /repo
+COPY packages/tinybase_docs packages/tinybase_docs
+WORKDIR /repo/packages/tinybase_docs
+RUN flutter pub get
+RUN flutter build web --release
+
+FROM nginx:alpine
+COPY packages/tinybase_docs/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /repo/packages/tinybase_docs/build/web /usr/share/nginx/html
+# Railway injecte PORT — on remplace le listen 80 au démarrage.
+CMD sh -c "sed -i 's/listen 80;/listen ${PORT:-80};/' /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"

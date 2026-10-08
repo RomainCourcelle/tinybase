@@ -4,13 +4,7 @@ import 'package:shelf_router/shelf_router.dart';
 import '../../services/auth_service.dart';
 import '../json_response.dart';
 
-/// Active/désactive ("ban") un compte de la collection `users` — protégée
-/// par [adminOnlyMiddleware] (voir app.dart), comme le reste de
-/// `/api/admin/*`. Vit à part de `/api/collections/users/*` (RecordsService)
-/// parce que `users` est une collection `auth` : create/update y restent
-/// bloqués même pour l'admin (voir records_service.dart), donc un simple
-/// PATCH générique ne peut pas servir à ça — celui-ci ne touche QUE la
-/// colonne `disabled`, jamais `email`/`password_hash`.
+/// Routes admin sur `users` — ban + patch des champs custom.
 Router buildUsersAdminRoutes(AuthService authService) {
   final router = Router();
 
@@ -23,6 +17,17 @@ Router buildUsersAdminRoutes(AuthService authService) {
         throw const FormatException('Le champ "disabled" (booléen) est requis');
       }
       final user = await authService.setDisabled(id, disabled);
+      return jsonResponse(user);
+    } catch (e) {
+      return errorResponse(e);
+    }
+  });
+
+  /// PATCH champs custom d'un user (pas email/password/OAuth).
+  router.patch('/<id>', (Request request, String id) async {
+    try {
+      final body = await request.readJson();
+      final user = await authService.adminUpdateUserFields(id, body);
       return jsonResponse(user);
     } catch (e) {
       return errorResponse(e);

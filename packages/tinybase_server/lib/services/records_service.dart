@@ -155,6 +155,7 @@ class RecordsService {
             recordId: id,
             field: entry.key,
             upload: entry.value,
+            fieldDef: field,
           );
     }
 
@@ -221,6 +222,7 @@ class RecordsService {
             recordId: id,
             field: entry.key,
             upload: entry.value,
+            fieldDef: field,
           );
       if (previous != null && previous.isNotEmpty && previous != merged[entry.key]) {
         oldFilesToDelete.add(previous);

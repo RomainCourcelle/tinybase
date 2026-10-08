@@ -68,6 +68,12 @@ doivent partager la même clé).
 - `DELETE /<name>` → supprime (pas `users`)
 - `GET /<name>/codegen` → fichiers Dart générés
 
+### Auth profil (v0.3)
+- `POST /register` accepte aussi les champs custom du schéma `users`
+- `GET /me` → profil public (id, email, custom fields, sans `password_hash`)
+- `PATCH /me` → met à jour les champs custom
+- Admin : `PATCH /api/admin/users/<id>` → champs custom ; `PATCH .../disabled` → ban
+
 ### Records (`/api/collections/<name>/records`, Bearer optionnel selon règles)
 - `GET /` (`?filter=&sort=&page=&perPage=`) → liste paginée
 - `GET /<id>` → un record
@@ -77,6 +83,7 @@ doivent partager la même clé).
 - `GET /<id>/files/<field>` → télécharge le fichier d'un champ `file`
 - `GET /realtime` → SSE (`event: record`, payload `{action, recordId, record?}`)
 
+Champ `file` : options `max:<octets>` et `mime:<type>` dans le schéma.
 Sur une collection `auth` (`users`) : create/update refusés via cette API ;
 `password_hash` n'est **jamais** renvoyé.
 

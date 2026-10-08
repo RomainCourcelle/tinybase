@@ -549,4 +549,16 @@ class ApiClient {
       (_) => null,
     );
   }
+
+  /// Patch des champs custom d'un user (collection auth).
+  Future<Map<String, dynamic>> updateUserFields(String userId, Map<String, dynamic> data) {
+    return _handle(
+      () => http.patch(
+        _uri('/api/admin/users/$userId'),
+        headers: _headers,
+        body: jsonEncode(data),
+      ),
+      (json) => Map<String, dynamic>.from(json as Map),
+    );
+  }
 }

@@ -19,6 +19,8 @@ class _EditableField {
   FieldType type;
   bool required;
   final TextEditingController optionsController;
+  final TextEditingController fileMaxMoController;
+  final TextEditingController fileMimesController;
   String? relationTarget;
 
   _EditableField({
@@ -27,13 +29,19 @@ class _EditableField {
     required this.type,
     this.required = false,
     String options = '',
+    String fileMaxMo = '',
+    String fileMimes = '',
     this.relationTarget,
   })  : nameController = TextEditingController(text: name),
-        optionsController = TextEditingController(text: options);
+        optionsController = TextEditingController(text: options),
+        fileMaxMoController = TextEditingController(text: fileMaxMo),
+        fileMimesController = TextEditingController(text: fileMimes);
 
   void dispose() {
     nameController.dispose();
     optionsController.dispose();
+    fileMaxMoController.dispose();
+    fileMimesController.dispose();
   }
 }
 
@@ -103,14 +111,20 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
     final existing = widget.existing;
     _nameController = TextEditingController(text: existing?.name ?? '');
     _fields = (existing?.fields ?? const <FieldDefinition>[])
-        .map((f) => _EditableField(
-              originalName: f.name,
-              name: f.name,
-              type: f.type,
-              required: f.required,
-              options: f.type == FieldType.select ? f.options.join(', ') : '',
-              relationTarget: f.type == FieldType.relation && f.options.isNotEmpty ? f.options.first : null,
-            ))
+        .map((f) {
+          final maxBytes = f.fileMaxSizeBytes;
+          final maxMo = maxBytes == null ? '' : (maxBytes / (1024 * 1024)).toString();
+          return _EditableField(
+            originalName: f.name,
+            name: f.name,
+            type: f.type,
+            required: f.required,
+            options: f.type == FieldType.select ? f.options.join(', ') : '',
+            fileMaxMo: f.type == FieldType.file ? maxMo : '',
+            fileMimes: f.type == FieldType.file ? f.fileMimeAllowlist.join(', ') : '',
+            relationTarget: f.type == FieldType.relation && f.options.isNotEmpty ? f.options.first : null,
+          );
+        })
         .toList();
 
     _listRule = _RuleState(text: existing?.listRule ?? '', adminOnly: existing != null && existing.listRule == null);
@@ -204,19 +218,44 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
       _error = null;
     });
 
-    final newFields = _fields
-        .map((f) => FieldDefinition(
-              name: f.nameController.text.trim(),
-              type: f.type,
-              required: f.required,
-              options: switch (f.type) {
-                FieldType.select =>
-                  f.optionsController.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
-                FieldType.relation => [f.relationTarget!],
-                _ => const [],
-              },
-            ))
-        .toList();
+    final newFields = <FieldDefinition>[];
+    for (final f in _fields) {
+      final name = f.nameController.text.trim();
+      if (widget.existing?.type == CollectionType.auth && kAuthProtectedFieldNames.contains(name)) {
+        setState(() {
+          _saving = false;
+          _error = '"$name" est un champ système de users — choisis un autre nom';
+        });
+        return;
+      }
+      List<String> options = const [];
+      switch (f.type) {
+        case FieldType.select:
+          options = f.optionsController.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+        case FieldType.relation:
+          options = [f.relationTarget!];
+        case FieldType.file:
+          final rawMo = f.fileMaxMoController.text.trim().replaceAll(',', '.');
+          int? maxBytes;
+          if (rawMo.isNotEmpty) {
+            final mo = double.tryParse(rawMo);
+            if (mo == null || mo <= 0) {
+              setState(() {
+                _saving = false;
+                _error = 'Taille max invalide pour "$name" (Mo)';
+              });
+              return;
+            }
+            maxBytes = (mo * 1024 * 1024).round();
+          }
+          final mimes =
+              f.fileMimesController.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+          options = FieldDefinition.encodeFileOptions(maxBytes: maxBytes, mimes: mimes);
+        default:
+          options = const [];
+      }
+      newFields.add(FieldDefinition(name: name, type: f.type, required: f.required, options: options));
+    }
 
     final provider = context.read<CollectionsProvider>();
     bool ok;
@@ -330,6 +369,14 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (widget.existing?.type == CollectionType.auth) ...[
+                          Text(
+                            'Collection auth : ajoute ici des champs custom (ex. display_name). '
+                            'Les colonnes système (email, password_hash, OAuth, disabled…) restent gérées par TinyBase.',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         if (_fields.isNotEmpty) ..._fields.map(_buildFieldRow),
                         if (_fields.isNotEmpty) const SizedBox(height: 8),
                         Align(
@@ -413,7 +460,7 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
                       ),
                     ],
                   ),
-                  if (_isEditing) ...[
+                  if (_isEditing && widget.existing!.name != 'users') ...[
                     const SizedBox(height: 32),
                     _sectionCard(
                       title: 'Zone dangereuse',
@@ -555,6 +602,36 @@ class _CollectionFormScreenState extends State<CollectionFormScreen> {
             _RelationTargetPicker(
               value: field.relationTarget,
               onChanged: (name) => setState(() => field.relationTarget = name),
+            ),
+          ],
+          if (field.type == FieldType.file) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: field.fileMaxMoController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Taille max (Mo)',
+                      hintText: 'vide = défaut serveur',
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: field.fileMimesController,
+                    decoration: const InputDecoration(
+                      labelText: 'MIME autorisés (virgules)',
+                      hintText: 'ex. image/png, image/jpeg',
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ],

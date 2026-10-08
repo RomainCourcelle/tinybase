@@ -115,7 +115,11 @@ class RecordsProvider extends ChangeNotifier {
   }) async {
     errorMessage = null;
     try {
-      await client.updateRecord(collectionName, id, data, files: files);
+      if (collectionName == 'users') {
+        await client.updateUserFields(id, data);
+      } else {
+        await client.updateRecord(collectionName, id, data, files: files);
+      }
       await load(page: page);
       return true;
     } on ApiException catch (e) {

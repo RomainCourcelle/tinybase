@@ -951,6 +951,84 @@ void main() {
       expect(contentType, isNotNull);
     });
 
+    test('champ file refuse un MIME non autorisé', () async {
+      final (status, _) = await client.patch(
+        '/api/admin/collections/docs',
+        json: {
+          'fields': [
+            {'name': 'title', 'type': 'text', 'required': true, 'options': []},
+            {
+              'name': 'attachment',
+              'type': 'file',
+              'required': false,
+              'options': ['max:1048576', 'mime:text/plain'],
+            },
+          ],
+          'listRule': '',
+          'viewRule': '',
+          'createRule': '',
+          'updateRule': '',
+          'deleteRule': '',
+        },
+        token: docsAdminToken,
+      );
+      expect(status, 200);
+
+      final (badStatus, badBody) = await client.postMultipart(
+        '/api/collections/docs/records',
+        fields: {'data': jsonEncode({'title': 'bad mime'})},
+        files: {
+          'attachment': (
+            filename: 'x.bin',
+            bytes: utf8.encode('x'),
+            contentType: 'application/octet-stream',
+          ),
+        },
+        token: docsAdminToken,
+      );
+      expect(badStatus, 400);
+      expect(badBody['error'].toString(), contains('MIME'));
+    });
+
+    test('users : champs custom + register + PATCH /me', () async {
+      final (schemaStatus, _) = await client.patch(
+        '/api/admin/collections/users',
+        json: {
+          'fields': [
+            {'name': 'display_name', 'type': 'text', 'required': false, 'options': []},
+          ],
+          'listRule': '@request.auth.id = id',
+          'viewRule': '@request.auth.id = id',
+          'createRule': null,
+          'updateRule': '@request.auth.id = id',
+          'deleteRule': null,
+        },
+        token: docsAdminToken,
+      );
+      expect(schemaStatus, 200);
+
+      final (regStatus, regBody) = await client.post('/api/auth/register', json: {
+        'email': 'profile@example.com',
+        'password': 'password123',
+        'display_name': 'Ada',
+      });
+      expect(regStatus, 201);
+      final token = regBody['accessToken'] as String;
+
+      final (meStatus, meBody) = await client.get('/api/auth/me', token: token);
+      expect(meStatus, 200);
+      expect(meBody['display_name'], 'Ada');
+      expect(meBody.containsKey('password_hash'), isFalse);
+
+      final (patchStatus, patchBody) = await client.patch(
+        '/api/auth/me',
+        json: {'display_name': 'Ada Lovelace'},
+        token: token,
+      );
+      expect(patchStatus, 200);
+      expect(patchBody['display_name'], 'Ada Lovelace');
+    });
+
     test('SSE realtime émet un event create', () async {
       final events = <Map<String, dynamic>>[];
       final sub = client.subscribeSse(

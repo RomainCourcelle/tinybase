@@ -1,9 +1,11 @@
 import 'package:bcrypt/bcrypt.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:sqlite_async/sqlite_async.dart';
+import 'package:tinybase_shared/tinybase_shared.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/config.dart';
+import 'collections_service.dart';
 import 'settings_service.dart';
 
 const _uuid = Uuid();
@@ -34,15 +36,19 @@ class AuthSession {
 
 /// Inscription / connexion / rafraîchissement de session sur la collection
 /// `users`. Mots de passe hashés en bcrypt, sessions en JWT (access court +
-/// refresh long), même idée que NexusBase. La connexion Discord (OAuth2)
-/// vit ici aussi — [loginOrRegisterWithDiscord] — puisqu'elle aboutit au
-/// même résultat qu'un login classique : une [AuthSession].
+/// refresh long).
 class AuthService {
   final SqliteDatabase db;
   final SettingsService settings;
-  AuthService(this.db, this.settings);
+  final CollectionsService collections;
 
-  Future<AuthSession> register(String email, String password) async {
+  AuthService(this.db, this.settings, this.collections);
+
+  Future<AuthSession> register(
+    String email,
+    String password, {
+    Map<String, dynamic> extras = const {},
+  }) async {
     final normalizedEmail = _normalizeEmail(email);
     final appSettings = await settings.get();
     if (!appSettings.registrationsOpen) {
@@ -56,14 +62,22 @@ class AuthService {
       throw AuthException('Un compte existe déjà avec cet email');
     }
 
+    final custom = await _coerceCustomFields(extras, forCreate: true);
+
     final id = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
     final hash = BCrypt.hashpw(password, BCrypt.gensalt());
 
-    await db.execute(
-      'INSERT INTO users (id, email, password_hash, created, updated) VALUES (?, ?, ?, ?, ?)',
-      [id, normalizedEmail, hash, now, now],
-    );
+    final columns = <String>['id', 'email', 'password_hash', 'created', 'updated'];
+    final values = <Object?>[id, normalizedEmail, hash, now, now];
+    for (final entry in custom.entries) {
+      columns.add(entry.key);
+      values.add(entry.value);
+    }
+
+    final placeholders = List.filled(columns.length, '?').join(', ');
+    final quoted = columns.map((c) => '"$c"').join(', ');
+    await db.execute('INSERT INTO users ($quoted) VALUES ($placeholders)', values);
 
     return await _issueSession(id, normalizedEmail);
   }
@@ -85,7 +99,6 @@ class AuthService {
   }
 
   /// Connexion / liaison OAuth générique (discord, google, apple, microsoft).
-  /// [providerColumn] = nom de colonne SQLite (`discord_id`, `google_id`, …).
   Future<AuthSession> loginOrRegisterWithOAuth({
     required String providerColumn,
     required String providerUserId,
@@ -102,7 +115,10 @@ class AuthService {
       if ((existingByProvider['disabled'] as int? ?? 0) == 1) {
         throw AuthException('Ce compte a été désactivé');
       }
-      return await _issueSession(existingByProvider['id'] as String, existingByProvider['email'] as String);
+      return await _issueSession(
+        existingByProvider['id'] as String,
+        existingByProvider['email'] as String,
+      );
     }
 
     final effectiveEmail = (email != null && email.isNotEmpty)
@@ -165,21 +181,39 @@ class AuthService {
     return await _issueSession(row['id'] as String, row['email'] as String);
   }
 
-  /// Utilisé par `GET /api/auth/me` (voir auth_routes.dart) — le code
-  /// généré côté client (AuthCodegenService) attend `{id, email}`, pas
-  /// juste l'id du jeton.
+  /// Profil public : id, email, disabled + champs custom (sans secrets).
   Future<Map<String, dynamic>?> getUserById(String userId) async {
-    final row = await db.getOptional('SELECT id, email FROM users WHERE id = ?', [userId]);
+    final row = await db.getOptional('SELECT * FROM users WHERE id = ?', [userId]);
     if (row == null) return null;
-    return {'id': row['id'], 'email': row['email']};
+    return _publicUser(Map<String, dynamic>.from(row));
   }
 
-  /// Vérifie un access token et renvoie l'id utilisateur, ou null s'il est
-  /// absent/invalide/expiré (requête traitée comme anonyme). Vérifie aussi
-  /// `disabled` en base à CHAQUE requête (pas seulement au login) : un ban
-  /// doit couper l'accès immédiatement, sans attendre l'expiration du jeton
-  /// d'accès déjà émis (généralement de courte durée, mais pas nul) — voir
-  /// auth_middleware.dart qui appelle ceci de façon asynchrone.
+  /// Met à jour les champs custom du user authentifié.
+  Future<Map<String, dynamic>> updateMe(String userId, Map<String, dynamic> data) async {
+    final existing = await db.getOptional('SELECT id FROM users WHERE id = ?', [userId]);
+    if (existing == null) throw AuthException('Utilisateur introuvable');
+
+    final custom = await _coerceCustomFields(data, forCreate: false);
+    if (custom.isEmpty) {
+      return (await getUserById(userId))!;
+    }
+
+    final sets = <String>['"updated" = ?'];
+    final values = <Object?>[DateTime.now().toUtc().toIso8601String()];
+    for (final entry in custom.entries) {
+      sets.add('"${entry.key}" = ?');
+      values.add(entry.value);
+    }
+    values.add(userId);
+    await db.execute('UPDATE users SET ${sets.join(', ')} WHERE id = ?', values);
+    return (await getUserById(userId))!;
+  }
+
+  /// Admin : met à jour les champs custom d'un user (pas email/password/OAuth).
+  Future<Map<String, dynamic>> adminUpdateUserFields(String userId, Map<String, dynamic> data) async {
+    return updateMe(userId, data);
+  }
+
   Future<String?> verifyAccessToken(String token) async {
     final String userId;
     try {
@@ -198,20 +232,64 @@ class AuthService {
     return userId;
   }
 
-  /// Active/désactive un compte ("ban") sans supprimer ses données — un
-  /// compte désactivé ne peut plus se connecter (login/refresh/Discord) et
-  /// perd l'accès immédiatement même avec un jeton d'accès déjà émis (voir
-  /// [verifyAccessToken]). Réversible, contrairement à la suppression (voir
-  /// RecordsService.delete pour cette dernière).
   Future<Map<String, dynamic>> setDisabled(String userId, bool disabled) async {
-    final row = await db.getOptional('SELECT id, email FROM users WHERE id = ?', [userId]);
+    final row = await db.getOptional('SELECT * FROM users WHERE id = ?', [userId]);
     if (row == null) throw AuthException('Utilisateur introuvable');
     await db.execute('UPDATE users SET disabled = ?, updated = ? WHERE id = ?', [
       disabled ? 1 : 0,
       DateTime.now().toUtc().toIso8601String(),
       userId,
     ]);
-    return {'id': row['id'], 'email': row['email'], 'disabled': disabled};
+    final public = _publicUser(Map<String, dynamic>.from(row));
+    public['disabled'] = disabled;
+    return public;
+  }
+
+  Future<Map<String, Object?>> _coerceCustomFields(
+    Map<String, dynamic> data, {
+    required bool forCreate,
+  }) async {
+    final col = await collections.getOrThrow('users');
+    final byName = {for (final f in col.fields) f.name: f};
+    final out = <String, Object?>{};
+
+    for (final entry in data.entries) {
+      final key = entry.key;
+      if (key == 'email' || key == 'password' || key == 'password_hash') continue;
+      if (kAuthProtectedFieldNames.contains(key)) {
+        throw FormatException('Champ système non modifiable : "$key"');
+      }
+      final field = byName[key];
+      if (field == null) {
+        throw FormatException('Champ inconnu : "$key"');
+      }
+      if (field.type == FieldType.file) {
+        throw FormatException('Les champs fichier ne sont pas supportés via /api/auth (utilise une collection séparée)');
+      }
+      final coerced = field.type.coerce(entry.value);
+      if (field.required && coerced == null) {
+        throw FormatException('Champ requis manquant : "$key"');
+      }
+      out[key] = coerced;
+    }
+
+    if (forCreate) {
+      for (final field in col.fields) {
+        if (!field.required) continue;
+        if (out.containsKey(field.name)) continue;
+        throw FormatException('Champ requis manquant : "${field.name}"');
+      }
+    }
+
+    return out;
+  }
+
+  Map<String, dynamic> _publicUser(Map<String, dynamic> row) {
+    final cleaned = Map<String, dynamic>.from(row);
+    for (final secret in kAuthSecretFields) {
+      cleaned.remove(secret);
+    }
+    return cleaned;
   }
 
   Future<AuthSession> _issueSession(String userId, String email) async {
@@ -223,6 +301,5 @@ class AuthService {
     return AuthSession(userId: userId, email: email, accessToken: access, refreshToken: refresh);
   }
 
-  /// Trim + lowercase : `Alice@X.com` et `alice@x.com` = même compte.
   static String _normalizeEmail(String email) => email.trim().toLowerCase();
 }

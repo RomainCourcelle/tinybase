@@ -1,3 +1,9 @@
+## 0.3.0
+
+- `register(..., fields: {...})` for custom `users` profile fields.
+- `updateMe(fields)` via `PATCH /api/auth/me`.
+- `TinyBaseUser.fields` holds custom profile data from `/me`.
+
 ## 0.2.0
 
 - File uploads via multipart on `create` / `update` (`FileUpload`).

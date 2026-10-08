@@ -130,11 +130,18 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> register({required String email, required String password}) =>
-      _run(() => client.auth.register(email: email, password: password));
+  Future<bool> register({
+    required String email,
+    required String password,
+    Map<String, dynamic> fields = const {},
+  }) =>
+      _run(() => client.auth.register(email: email, password: password, fields: fields));
 
   Future<bool> login({required String email, required String password}) =>
       _run(() => client.auth.login(email: email, password: password));
+
+  Future<bool> updateMe(Map<String, dynamic> fields) =>
+      _run(() => client.auth.updateMe(fields));
 $oauth
   Future<void> logout() async {
     await client.auth.logout();
@@ -276,11 +283,18 @@ class Auth extends _\$Auth {
     state = state.copyWith(isRestoring: false);
   }
 
-  Future<bool> register({required String email, required String password}) =>
-      _run(() => _client.auth.register(email: email, password: password));
+  Future<bool> register({
+    required String email,
+    required String password,
+    Map<String, dynamic> fields = const {},
+  }) =>
+      _run(() => _client.auth.register(email: email, password: password, fields: fields));
 
   Future<bool> login({required String email, required String password}) =>
       _run(() => _client.auth.login(email: email, password: password));
+
+  Future<bool> updateMe(Map<String, dynamic> fields) =>
+      _run(() => _client.auth.updateMe(fields));
 $oauth
   Future<void> logout() async {
     await _client.auth.logout();

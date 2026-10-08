@@ -16,7 +16,10 @@ Router buildAuthRoutes(AuthService authService) {
       if (email == null || password == null) {
         return jsonResponse({'error': 'email et password requis'}, status: 400);
       }
-      final session = await authService.register(email, password);
+      final extras = Map<String, dynamic>.from(body)
+        ..remove('email')
+        ..remove('password');
+      final session = await authService.register(email, password, extras: extras);
       return jsonResponse(session.toJson(), status: 201);
     } catch (e) {
       return errorResponse(e);
@@ -52,9 +55,6 @@ Router buildAuthRoutes(AuthService authService) {
     }
   });
 
-  /// Renvoie `{id, email}` — le code généré côté client (voir
-  /// tinybase_codegen/AuthCodegenService, `AuthRepository.me()`) désérialise
-  /// la réponse en `AppUser`, qui exige les deux champs.
   router.get('/me', (Request request) async {
     final auth = request.auth;
     if (!auth.isAuthenticated) {
@@ -63,6 +63,20 @@ Router buildAuthRoutes(AuthService authService) {
     final user = await authService.getUserById(auth.userId!);
     if (user == null) return jsonResponse({'error': 'Utilisateur introuvable'}, status: 404);
     return jsonResponse(user);
+  });
+
+  router.patch('/me', (Request request) async {
+    try {
+      final auth = request.auth;
+      if (!auth.isAuthenticated) {
+        return jsonResponse({'error': 'Non authentifié'}, status: 401);
+      }
+      final body = await request.readJson();
+      final user = await authService.updateMe(auth.userId!, body);
+      return jsonResponse(user);
+    } catch (e) {
+      return errorResponse(e);
+    }
   });
 
   return router;

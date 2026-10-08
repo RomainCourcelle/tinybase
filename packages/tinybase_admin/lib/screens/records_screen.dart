@@ -115,9 +115,9 @@ class RecordsScreen extends StatelessWidget {
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        if (!_isAuthCollection)
+                                        if (!_isAuthCollection || collection.fields.isNotEmpty)
                                           IconButton(
-                                            tooltip: 'Éditer',
+                                            tooltip: _isAuthCollection ? 'Éditer le profil' : 'Éditer',
                                             icon: const Icon(Icons.edit_outlined, size: 18),
                                             onPressed: () => showDialog(
                                               context: context,

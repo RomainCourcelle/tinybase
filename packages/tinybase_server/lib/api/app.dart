@@ -28,9 +28,9 @@ import 'routes/users_admin_routes.dart';
 
 Handler buildApp() {
   final settingsService = SettingsService(Database.instance);
-  final authService = AuthService(Database.instance, settingsService);
-  final adminService = AdminService(Database.instance);
   final collectionsService = CollectionsService(Database.instance);
+  final authService = AuthService(Database.instance, settingsService, collectionsService);
+  final adminService = AdminService(Database.instance);
   final realtimeHub = RealtimeHub();
   final filesService = FilesService();
   final recordsService = RecordsService(

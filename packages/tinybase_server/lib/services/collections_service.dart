@@ -161,8 +161,8 @@ class CollectionsService {
     final col = await getOrThrow(name);
     for (final f in newFields) {
       assertValidIdentifier(f.name, kind: 'champ');
-      if (col.autoFields.contains(f.name)) {
-        throw FormatException('"${f.name}" est un champ automatique, choisis un autre nom');
+      if (col.autoFields.contains(f.name) || kAuthProtectedFieldNames.contains(f.name)) {
+        throw FormatException('"${f.name}" est un champ automatique / système, choisis un autre nom');
       }
     }
 
@@ -265,7 +265,8 @@ class CollectionsService {
   /// [kAuthAutoFields] et le bootstrap `users` de database.dart.
   static const String _authAutoColumnsSql =
       'id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, '
-      'discord_id TEXT, disabled INTEGER NOT NULL DEFAULT 0, '
+      'discord_id TEXT, google_id TEXT, apple_id TEXT, microsoft_id TEXT, '
+      'disabled INTEGER NOT NULL DEFAULT 0, '
       'created TEXT NOT NULL, updated TEXT NOT NULL';
 
   /// Expression SELECT pour une colonne auto : si absente de l'ancienne

@@ -9,8 +9,11 @@ Backend léger (SQLite) + admin Flutter Web + client Dart/Flutter + codegen.
 | [`tinybase_server`](packages/tinybase_server) | API HTTP (auth, collections, admin) |
 | [`tinybase_client`](packages/tinybase_client) | SDK Flutter publié sur [pub.dev](https://pub.dev/packages/tinybase_client) |
 | [`tinybase_admin`](packages/tinybase_admin) | Panel d’admin (Flutter Web) |
+| [`tinybase_docs`](packages/tinybase_docs) | Getting Started (Flutter Web, hébergeable sur Railway) |
 | [`tinybase_codegen`](packages/tinybase_codegen) | Génération modèles / Provider / Riverpod |
 | [`tinybase_shared`](packages/tinybase_shared) | Types partagés |
+
+Doc : lance [`packages/tinybase_docs`](packages/tinybase_docs) en local ou déploie son Dockerfile sur Railway.
 
 ## Railway (prod)
 

@@ -338,19 +338,18 @@ class _Sidebar extends StatelessWidget {
                                 style: const TextStyle(fontSize: 11),
                               ),
                               onTap: () => onOpenRecords(col.name),
-                              trailing: col.name == 'users'
-                                  ? null
-                                  : PopupMenuButton<String>(
-                                      tooltip: 'Actions',
-                                      padding: EdgeInsets.zero,
-                                      icon: const Icon(Icons.more_horiz, size: 18),
-                                      onSelected: (action) => onCollectionAction(col, action),
-                                      itemBuilder: (context) => const [
-                                        PopupMenuItem(value: 'edit', child: Text('Éditer le schéma')),
-                                        PopupMenuItem(value: 'codegen', child: Text('Générer le code')),
-                                        PopupMenuItem(value: 'delete', child: Text('Supprimer')),
-                                      ],
-                                    ),
+                              trailing: PopupMenuButton<String>(
+                                tooltip: 'Actions',
+                                padding: EdgeInsets.zero,
+                                icon: const Icon(Icons.more_horiz, size: 18),
+                                onSelected: (action) => onCollectionAction(col, action),
+                                itemBuilder: (context) => [
+                                  const PopupMenuItem(value: 'edit', child: Text('Éditer le schéma')),
+                                  const PopupMenuItem(value: 'codegen', child: Text('Générer le code')),
+                                  if (col.name != 'users')
+                                    const PopupMenuItem(value: 'delete', child: Text('Supprimer')),
+                                ],
+                              ),
                             ),
                           );
                         },
