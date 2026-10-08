@@ -1,7 +1,9 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:tinybase_shared/tinybase_shared.dart';
+import '../providers/connection_provider.dart';
 import '../providers/records_provider.dart';
 
 /// Formulaire généré dynamiquement à partir du schéma de la collection —
@@ -20,6 +22,9 @@ class _RecordFormDialogState extends State<RecordFormDialog> {
   final Map<String, TextEditingController> _textControllers = {};
   final Map<String, bool> _boolValues = {};
   final Map<String, String?> _selectValues = {};
+  final Map<String, String?> _existingFileNames = {};
+  final Map<String, ({String name, List<int> bytes})> _pickedFiles = {};
+  final Set<String> _clearFiles = {};
   bool _saving = false;
   String? _error;
 
@@ -31,10 +36,10 @@ class _RecordFormDialogState extends State<RecordFormDialog> {
       switch (field.type) {
         case FieldType.boolean:
           _boolValues[field.name] = current == 1 || current == true;
-          break;
         case FieldType.select:
           _selectValues[field.name] = current?.toString();
-          break;
+        case FieldType.file:
+          _existingFileNames[field.name] = current?.toString();
         default:
           _textControllers[field.name] = TextEditingController(text: current?.toString() ?? '');
       }
@@ -63,6 +68,22 @@ class _RecordFormDialogState extends State<RecordFormDialog> {
     }
   }
 
+  Future<void> _pickFile(String fieldName) async {
+    final files = await FilePicker.pickFiles();
+    if (files.isEmpty) return;
+    final file = files.first;
+    try {
+      final bytes = await file.readAsBytes();
+      setState(() {
+        _pickedFiles[fieldName] = (name: file.name, bytes: bytes);
+        _clearFiles.remove(fieldName);
+        _error = null;
+      });
+    } catch (e) {
+      setState(() => _error = 'Impossible de lire le fichier : $e');
+    }
+  }
+
   Future<void> _save() async {
     setState(() {
       _saving = true;
@@ -70,14 +91,14 @@ class _RecordFormDialogState extends State<RecordFormDialog> {
     });
 
     final data = <String, dynamic>{};
+    final files = <String, ({String filename, List<int> bytes, String? contentType})>{};
+
     for (final field in widget.collection.fields) {
       switch (field.type) {
         case FieldType.boolean:
           data[field.name] = _boolValues[field.name] ?? false;
-          break;
         case FieldType.select:
           if (_selectValues[field.name] != null) data[field.name] = _selectValues[field.name];
-          break;
         case FieldType.number:
           final raw = _textControllers[field.name]!.text.trim();
           if (raw.isNotEmpty) {
@@ -91,7 +112,17 @@ class _RecordFormDialogState extends State<RecordFormDialog> {
             }
             data[field.name] = parsed;
           }
-          break;
+        case FieldType.file:
+          final picked = _pickedFiles[field.name];
+          if (picked != null) {
+            files[field.name] = (
+              filename: picked.name,
+              bytes: picked.bytes,
+              contentType: null,
+            );
+          } else if (_clearFiles.contains(field.name)) {
+            data[field.name] = null;
+          }
         default:
           final raw = _textControllers[field.name]!.text;
           if (raw.isNotEmpty) data[field.name] = raw;
@@ -100,8 +131,8 @@ class _RecordFormDialogState extends State<RecordFormDialog> {
 
     final provider = context.read<RecordsProvider>();
     final ok = widget.existing == null
-        ? await provider.create(data)
-        : await provider.update(widget.existing!['id'] as String, data);
+        ? await provider.create(data, files: files.isEmpty ? null : files)
+        : await provider.update(widget.existing!['id'] as String, data, files: files.isEmpty ? null : files);
 
     if (!mounted) return;
     if (ok) {
@@ -203,6 +234,63 @@ class _RecordFormDialogState extends State<RecordFormDialog> {
               labelText: '$label (JSON brut)',
               border: const OutlineInputBorder(),
               isDense: true,
+            ),
+          ),
+        );
+      case FieldType.file:
+        final picked = _pickedFiles[field.name];
+        final existing = _existingFileNames[field.name];
+        final cleared = _clearFiles.contains(field.name);
+        final recordId = widget.existing?['id'] as String?;
+        final connection = context.read<ConnectionProvider>();
+        final downloadUrl = (recordId != null && existing != null && existing.isNotEmpty && !cleared)
+            ? connection.client.fileUrl(widget.collection.name, recordId, field.name)
+            : null;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: label,
+              border: const OutlineInputBorder(),
+              isDense: true,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    picked != null
+                        ? picked.name
+                        : (cleared || existing == null || existing.isEmpty)
+                            ? 'Aucun fichier'
+                            : existing,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (downloadUrl != null)
+                  IconButton(
+                    tooltip: 'Ouvrir',
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    onPressed: () {
+                      // Sur web, l'admin ouvre l'URL (Bearer non transmis —
+                      // l'admin a souvent des règles publiques ou on
+                      // s'appuie sur le token en session navigateur non
+                      // applicable ici). On affiche l'URL pour copier.
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(downloadUrl)),
+                      );
+                    },
+                  ),
+                TextButton(onPressed: () => _pickFile(field.name), child: const Text('Choisir')),
+                if ((existing != null && existing.isNotEmpty && !cleared) || picked != null)
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _pickedFiles.remove(field.name);
+                      _clearFiles.add(field.name);
+                    }),
+                    child: const Text('Retirer'),
+                  ),
+              ],
             ),
           ),
         );

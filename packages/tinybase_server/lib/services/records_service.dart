@@ -3,7 +3,9 @@ import 'package:uuid/uuid.dart';
 
 import 'package:tinybase_shared/tinybase_shared.dart';
 import 'collections_service.dart';
+import 'files_service.dart';
 import 'filter_parser.dart';
+import 'realtime_hub.dart';
 import 'rules_service.dart';
 
 const _uuid = Uuid();
@@ -25,8 +27,16 @@ class RecordsService {
   final SqliteDatabase db;
   final CollectionsService collections;
   final RulesService rules;
+  final FilesService files;
+  final RealtimeHub? realtime;
 
-  RecordsService(this.db, this.collections, {this.rules = const RulesService()});
+  RecordsService(
+    this.db,
+    this.collections, {
+    this.rules = const RulesService(),
+    FilesService? files,
+    this.realtime,
+  }) : files = files ?? FilesService();
 
   Future<CollectionDefinition> _requireWritableCollection(String name) async {
     final col = await collections.getOrThrow(name);
@@ -93,28 +103,72 @@ class RecordsService {
     return _publicRecord(col, record);
   }
 
+  /// Vérifie que l'abonné SSE a le droit de lister la collection.
+  Future<RuleDecision> authorizeRealtimeAsync(String collectionName, AuthContext auth) async {
+    final col = await collections.getOrThrow(collectionName);
+    return rules.forRead(col.listRule, auth);
+  }
+
+  /// Filtre un événement pour un abonné (règle owner-based sur listRule).
+  bool eventVisibleTo(RuleDecision decision, AuthContext auth, RecordChangeEvent event) {
+    if (!decision.allowed) return false;
+    if (auth.isAdmin) return true;
+    if (decision.sqlPredicate == null) return true;
+    // Owner filter : le record (ou son owner) doit matcher.
+    final record = event.record;
+    if (record == null) {
+      // delete sans payload : on laisse passer (le client retirera si connu).
+      return true;
+    }
+    // Prédicat typique `"owner" = ?` avec params [userId]
+    if (decision.params.isEmpty) return true;
+    final ownerField = _ownerFieldFromPredicate(decision.sqlPredicate!);
+    if (ownerField == null) return true;
+    return record[ownerField] == decision.params.first;
+  }
+
+  String? _ownerFieldFromPredicate(String predicate) {
+    final m = RegExp(r'^"(\w+)"\s*=\s*\?$').firstMatch(predicate.trim());
+    return m?.group(1);
+  }
+
   Future<Map<String, dynamic>> create(
     String collectionName,
     Map<String, dynamic> data, {
     required AuthContext auth,
+    Map<String, UploadedFile> files = const {},
   }) async {
     final col = await _requireWritableCollection(collectionName);
     if (!rules.forCreate(col.createRule, auth)) throw ForbiddenException();
 
     final now = DateTime.now().toUtc().toIso8601String();
     final id = _uuid.v4();
+    final merged = Map<String, dynamic>.from(data);
+
+    for (final entry in files.entries) {
+      final field = col.fields.where((f) => f.name == entry.key).firstOrNull;
+      if (field == null || field.type != FieldType.file) {
+        throw FormatException('Champ fichier inconnu : "${entry.key}"');
+      }
+      merged[entry.key] = await this.files.save(
+            collection: collectionName,
+            recordId: id,
+            field: entry.key,
+            upload: entry.value,
+          );
+    }
 
     final columns = <String>['id', 'created', 'updated', 'owner'];
     final values = <Object?>[id, now, now, auth.userId];
 
     for (final field in col.fields) {
-      if (!data.containsKey(field.name)) {
+      if (!merged.containsKey(field.name)) {
         if (field.required) {
           throw FormatException('Champ requis manquant : "${field.name}"');
         }
         continue;
       }
-      final coerced = field.type.coerce(data[field.name]);
+      final coerced = field.type.coerce(merged[field.name]);
       if (field.required && coerced == null) {
         throw FormatException('Champ requis manquant : "${field.name}"');
       }
@@ -129,7 +183,14 @@ class RecordsService {
       values,
     );
 
-    return view(collectionName, id, auth: auth);
+    final record = await view(collectionName, id, auth: auth);
+    realtime?.emit(RecordChangeEvent(
+      collection: collectionName,
+      action: 'create',
+      recordId: id,
+      record: record,
+    ));
+    return record;
   }
 
   Future<Map<String, dynamic>> update(
@@ -137,6 +198,7 @@ class RecordsService {
     String id,
     Map<String, dynamic> data, {
     required AuthContext auth,
+    Map<String, UploadedFile> files = const {},
   }) async {
     final col = await _requireWritableCollection(collectionName);
     final existingRow = await db.getOptional('SELECT * FROM "$collectionName" WHERE id = ?', [id]);
@@ -145,12 +207,44 @@ class RecordsService {
 
     if (!rules.forRecordAction(col.updateRule, auth, existing)) throw ForbiddenException();
 
+    final merged = Map<String, dynamic>.from(data);
+    final oldFilesToDelete = <String>[];
+
+    for (final entry in files.entries) {
+      final field = col.fields.where((f) => f.name == entry.key).firstOrNull;
+      if (field == null || field.type != FieldType.file) {
+        throw FormatException('Champ fichier inconnu : "${entry.key}"');
+      }
+      final previous = existing[entry.key]?.toString();
+      merged[entry.key] = await this.files.save(
+            collection: collectionName,
+            recordId: id,
+            field: entry.key,
+            upload: entry.value,
+          );
+      if (previous != null && previous.isNotEmpty && previous != merged[entry.key]) {
+        oldFilesToDelete.add(previous);
+      }
+    }
+
+    // Suppression explicite d'un fichier : champ file à null / "".
+    for (final field in col.fields.where((f) => f.type == FieldType.file)) {
+      if (!merged.containsKey(field.name)) continue;
+      if (files.containsKey(field.name)) continue;
+      final v = merged[field.name];
+      if (v == null || v == '') {
+        final previous = existing[field.name]?.toString();
+        if (previous != null && previous.isNotEmpty) oldFilesToDelete.add(previous);
+        merged[field.name] = null;
+      }
+    }
+
     final setClauses = <String>['"updated" = ?'];
     final values = <Object?>[DateTime.now().toUtc().toIso8601String()];
 
     for (final field in col.fields) {
-      if (!data.containsKey(field.name)) continue;
-      final coerced = field.type.coerce(data[field.name]);
+      if (!merged.containsKey(field.name)) continue;
+      final coerced = field.type.coerce(merged[field.name]);
       if (field.required && coerced == null) {
         throw FormatException('Champ requis manquant : "${field.name}"');
       }
@@ -164,7 +258,18 @@ class RecordsService {
       values,
     );
 
-    return view(collectionName, id, auth: auth);
+    for (final old in oldFilesToDelete) {
+      await this.files.deleteIfExists(collectionName, id, old);
+    }
+
+    final record = await view(collectionName, id, auth: auth);
+    realtime?.emit(RecordChangeEvent(
+      collection: collectionName,
+      action: 'update',
+      recordId: id,
+      record: record,
+    ));
+    return record;
   }
 
   /// Contrairement à `create`/`update` (qui passent par
@@ -188,6 +293,44 @@ class RecordsService {
     if (!rules.forRecordAction(col.deleteRule, auth, existing)) throw ForbiddenException();
 
     await db.execute('DELETE FROM "$collectionName" WHERE id = ?', [id]);
+    await files.deleteRecordFiles(collectionName, id);
+
+    realtime?.emit(RecordChangeEvent(
+      collection: collectionName,
+      action: 'delete',
+      recordId: id,
+    ));
+  }
+
+  /// Sert le fichier d'un champ file (ACL = viewRule).
+  Future<({List<int> bytes, String storedName, String? contentType})> readFile(
+    String collectionName,
+    String id,
+    String fieldName, {
+    required AuthContext auth,
+  }) async {
+    final col = await collections.getOrThrow(collectionName);
+    final field = col.fields.where((f) => f.name == fieldName).firstOrNull;
+    if (field == null || field.type != FieldType.file) {
+      throw NotFoundException('Champ fichier introuvable');
+    }
+
+    final row = await db.getOptional('SELECT * FROM "$collectionName" WHERE id = ?', [id]);
+    if (row == null) throw NotFoundException();
+    final record = Map<String, dynamic>.from(row);
+    if (!rules.forRecordAction(col.viewRule, auth, record)) throw ForbiddenException();
+
+    final storedName = record[fieldName]?.toString();
+    if (storedName == null || storedName.isEmpty) throw NotFoundException('Fichier absent');
+
+    final file = files.resolve(collectionName, id, storedName);
+    if (!await file.exists()) throw NotFoundException('Fichier absent');
+
+    return (
+      bytes: await file.readAsBytes(),
+      storedName: storedName,
+      contentType: null,
+    );
   }
 
   String _buildOrderBy(String sort, Set<String> allowedColumns) {

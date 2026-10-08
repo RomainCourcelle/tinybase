@@ -13,7 +13,8 @@ enum FieldType {
   url,
   select,
   relation,
-  json;
+  json,
+  file;
 
   static FieldType fromName(String name) {
     return FieldType.values.firstWhere(
@@ -38,6 +39,7 @@ enum FieldType {
       case FieldType.select:
       case FieldType.relation:
       case FieldType.json:
+      case FieldType.file:
         return 'TEXT';
     }
   }
@@ -67,6 +69,7 @@ enum FieldType {
       case FieldType.url:
       case FieldType.select:
       case FieldType.relation:
+      case FieldType.file:
         return value.toString();
     }
   }
@@ -96,6 +99,8 @@ extension FieldTypeLabel on FieldType {
         return 'Relation';
       case FieldType.json:
         return 'JSON';
+      case FieldType.file:
+        return 'Fichier';
     }
   }
 }

@@ -15,6 +15,11 @@ dart pub get
 set PORT=8090
 set DB_PATH=tinybase.db
 
+# Optionnel branding admin + fichiers :
+# set APP_NAME=Cerebrum Base
+# set FILES_DIR=C:\data\files
+# set MAX_FILE_SIZE=10485760
+
 dart run bin/server.dart
 ```
 
@@ -30,7 +35,18 @@ Au démarrage :
 seulement si tu as **plusieurs instances** derrière un load-balancer (elles
 doivent partager la même clé).
 
+### Fichiers & branding
+
+| Variable | Défaut | Rôle |
+|----------|--------|------|
+| `FILES_DIR` | `<dir(DB_PATH)>/files` | Stockage des uploads (`FieldType.file`) |
+| `MAX_FILE_SIZE` | `10485760` (10 Mo) | Taille max par fichier |
+| `APP_NAME` | _(vide)_ | Nom affiché dans l'admin ; sinon dérivé du domaine (`flown.com` → `Flown Base`) |
+
 ## API
+
+### Meta (`/api/meta`)
+- `GET /` → `{ appName }` (public)
 
 ### Auth (`/api/auth`)
 - `POST /register` `{email, password}` → session (access + refresh JWT)
@@ -55,9 +71,11 @@ doivent partager la même clé).
 ### Records (`/api/collections/<name>/records`, Bearer optionnel selon règles)
 - `GET /` (`?filter=&sort=&page=&perPage=`) → liste paginée
 - `GET /<id>` → un record
-- `POST /` → crée (`owner` = user authentifié)
-- `PATCH /<id>` → met à jour
+- `POST /` → crée (`owner` = user authentifié) — JSON ou `multipart/form-data` (`data` JSON + fichiers nommés comme les champs `file`)
+- `PATCH /<id>` → met à jour (idem multipart)
 - `DELETE /<id>` → supprime
+- `GET /<id>/files/<field>` → télécharge le fichier d'un champ `file`
+- `GET /realtime` → SSE (`event: record`, payload `{action, recordId, record?}`)
 
 Sur une collection `auth` (`users`) : create/update refusés via cette API ;
 `password_hash` n'est **jamais** renvoyé.
@@ -71,12 +89,12 @@ Sur une collection `auth` (`users`) : create/update refusés via cette API ;
 ## Déploiement (Railway)
 
 Voir le Dockerfile à la racine.
-- Attacher un **Volume** sur le dossier de `DB_PATH` (sinon DB + `.jwt_secret` repartent à zéro).
-- Optionnel : fixer `JWT_SECRET` si plusieurs replicas.
+- Attacher un **Volume** sur le dossier de `DB_PATH` (sinon DB + `.jwt_secret` + `files/` repartent à zéro).
+- Optionnel : `APP_NAME`, `JWT_SECRET` si plusieurs replicas.
 
-## Limites connues V1 (voir TODO.md)
+## Limites connues (voir TODO.md)
 
-- Pas de stockage de fichiers / temps réel (V2)
+- Fichiers : stockage local seulement (S3 plus tard)
 - Parseur de filtre sans parenthèses
 - Un seul compte admin
 - `target` Discord : deep-link custom ou `localhost` uniquement

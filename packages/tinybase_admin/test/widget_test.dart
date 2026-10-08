@@ -30,6 +30,6 @@ void main() {
     await tester.pumpWidget(const AdminApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('TinyBase Admin'), findsOneWidget);
+    expect(find.text('TinyBase'), findsOneWidget);
   });
 }

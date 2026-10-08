@@ -14,6 +14,33 @@ class Config {
 
   static String get dbPath => _env('DB_PATH') ?? 'tinybase.db';
 
+  /// Chemin DB effectivement utilisé (après [init]) — les tests passent un
+  /// path temporaire ; [filesDir] doit suivre ce même dossier.
+  static String? _resolvedDbPath;
+
+  /// Dossier de stockage des fichiers uploadés (`FieldType.file`).
+  /// Par défaut : `<dir(DB)>/files` pour suivre le volume persisté.
+  static String get filesDir {
+    final fromEnv = _env('FILES_DIR');
+    if (fromEnv != null) return fromEnv;
+    final dbFile = File(_resolvedDbPath ?? dbPath);
+    final dir = (dbFile.parent.path == '.' || dbFile.parent.path.isEmpty)
+        ? Directory.current.path
+        : dbFile.parent.path;
+    return '$dir${Platform.pathSeparator}files';
+  }
+
+  /// Nom d'affichage de l'instance (admin). Prioritaire sur la dérivation
+  /// depuis le domaine. Ex. `APP_NAME=Cerebrum Base` sur Railway.
+  static String? get appName => _env('APP_NAME');
+
+  /// Taille max d'un fichier uploadé (octets). Défaut 10 Mo.
+  static int get maxFileSize {
+    final raw = _env('MAX_FILE_SIZE');
+    if (raw == null) return 10 * 1024 * 1024;
+    return int.tryParse(raw) ?? 10 * 1024 * 1024;
+  }
+
   /// Dossier contenant le build Flutter Web de tinybase_admin (fichiers
   /// statiques `index.html` + `assets/` + `main.dart.js`), servi tel quel
   /// pour tout ce qui n'est pas une route `/api/*` — voir [buildApp] dans
@@ -41,6 +68,7 @@ class Config {
   /// secret sur leur DB temporaire (sinon on utiliserait le cwd du process).
   static Future<void> init({String? dbPathForSecret, String? jwtSecretOverride}) async {
     if (_initialized) return;
+    _resolvedDbPath = dbPathForSecret ?? dbPath;
 
     if (jwtSecretOverride != null) {
       if (jwtSecretOverride.length < 16) {

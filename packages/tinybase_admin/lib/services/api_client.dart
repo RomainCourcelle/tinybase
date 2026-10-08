@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'package:tinybase_shared/tinybase_shared.dart';
 
@@ -161,6 +163,18 @@ class ApiClient {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Métadonnées publiques (`APP_NAME`, etc.).
+  Future<Map<String, dynamic>> getMeta() {
+    return _handle(
+      () => http.get(_uri('/api/meta')),
+      (json) => Map<String, dynamic>.from(json as Map),
+    );
+  }
+
+  String fileUrl(String collectionName, String recordId, String field) {
+    return _uri('/api/collections/$collectionName/records/$recordId/files/$field').toString();
   }
 
   // --- Collections (schéma) ------------------------------------------------
@@ -361,24 +375,79 @@ class ApiClient {
     );
   }
 
-  Future<Map<String, dynamic>> createRecord(String collectionName, Map<String, dynamic> data) {
-    return _handle(
-      () => http.post(
-        _uri('/api/collections/$collectionName/records'),
-        headers: _headers,
-        body: jsonEncode(data),
-      ),
-      (json) => Map<String, dynamic>.from(json as Map),
+  Future<Map<String, dynamic>> createRecord(
+    String collectionName,
+    Map<String, dynamic> data, {
+    Map<String, ({String filename, List<int> bytes, String? contentType})>? files,
+  }) {
+    if (files == null || files.isEmpty) {
+      return _handle(
+        () => http.post(
+          _uri('/api/collections/$collectionName/records'),
+          headers: _headers,
+          body: jsonEncode(data),
+        ),
+        (json) => Map<String, dynamic>.from(json as Map),
+      );
+    }
+    return _multipart(
+      'POST',
+      '/api/collections/$collectionName/records',
+      data: data,
+      files: files,
     );
   }
 
-  Future<Map<String, dynamic>> updateRecord(String collectionName, String id, Map<String, dynamic> data) {
+  Future<Map<String, dynamic>> updateRecord(
+    String collectionName,
+    String id,
+    Map<String, dynamic> data, {
+    Map<String, ({String filename, List<int> bytes, String? contentType})>? files,
+  }) {
+    if (files == null || files.isEmpty) {
+      return _handle(
+        () => http.patch(
+          _uri('/api/collections/$collectionName/records/$id'),
+          headers: _headers,
+          body: jsonEncode(data),
+        ),
+        (json) => Map<String, dynamic>.from(json as Map),
+      );
+    }
+    return _multipart(
+      'PATCH',
+      '/api/collections/$collectionName/records/$id',
+      data: data,
+      files: files,
+    );
+  }
+
+  Future<Map<String, dynamic>> _multipart(
+    String method,
+    String path, {
+    required Map<String, dynamic> data,
+    required Map<String, ({String filename, List<int> bytes, String? contentType})> files,
+  }) {
     return _handle(
-      () => http.patch(
-        _uri('/api/collections/$collectionName/records/$id'),
-        headers: _headers,
-        body: jsonEncode(data),
-      ),
+      () async {
+        final request = http.MultipartRequest(method, _uri(path));
+        request.headers['Authorization'] = 'Bearer $accessToken';
+        request.fields['data'] = jsonEncode(data);
+        for (final entry in files.entries) {
+          request.files.add(
+            http.MultipartFile.fromBytes(
+              entry.key,
+              entry.value.bytes,
+              filename: entry.value.filename,
+              contentType: entry.value.contentType == null
+                  ? null
+                  : MediaType.parse(entry.value.contentType!),
+            ),
+          );
+        }
+        final streamed = await request.send();
+        return http.Response.fromStream(streamed);
+      },
       (json) => Map<String, dynamic>.from(json as Map),
     );
   }
@@ -388,6 +457,82 @@ class ApiClient {
       () => http.delete(_uri('/api/collections/$collectionName/records/$id'), headers: _headers),
       (_) => null,
     );
+  }
+
+  /// SSE realtime sur une collection. Annuler le stream ferme la connexion.
+  Stream<Map<String, dynamic>> subscribeRecords(String collectionName) {
+    late StreamController<Map<String, dynamic>> controller;
+    StreamSubscription<List<int>>? bytesSub;
+    var buffer = '';
+
+    Future<void> connect() async {
+      final request = http.Request('GET', _uri('/api/collections/$collectionName/realtime'));
+      request.headers['Authorization'] = 'Bearer $accessToken';
+      request.headers['Accept'] = 'text/event-stream';
+
+      final http.StreamedResponse response;
+      try {
+        response = await http.Client().send(request);
+      } catch (e) {
+        if (!controller.isClosed) {
+          controller.addError(ApiException(0, 'Realtime impossible : $e'));
+          await controller.close();
+        }
+        return;
+      }
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final body = await response.stream.bytesToString();
+        if (!controller.isClosed) {
+          controller.addError(ApiException(response.statusCode, body));
+          await controller.close();
+        }
+        return;
+      }
+
+      bytesSub = response.stream.listen(
+        (chunk) {
+          buffer += utf8.decode(chunk);
+          while (true) {
+            final sep = buffer.indexOf('\n\n');
+            if (sep < 0) break;
+            final block = buffer.substring(0, sep);
+            buffer = buffer.substring(sep + 2);
+            final event = _parseSseRecord(block);
+            if (event != null && !controller.isClosed) controller.add(event);
+          }
+        },
+        onError: (Object e, StackTrace st) {
+          if (!controller.isClosed) controller.addError(e, st);
+        },
+        onDone: () {
+          if (!controller.isClosed) controller.close();
+        },
+      );
+    }
+
+    controller = StreamController<Map<String, dynamic>>(
+      onListen: () {
+        // ignore: discarded_futures
+        connect();
+      },
+      onCancel: () async {
+        await bytesSub?.cancel();
+      },
+    );
+    return controller.stream;
+  }
+
+  Map<String, dynamic>? _parseSseRecord(String block) {
+    final dataLines = <String>[];
+    for (final line in block.split('\n')) {
+      if (line.startsWith(':')) continue;
+      if (line.startsWith('data:')) dataLines.add(line.substring(5).trim());
+    }
+    if (dataLines.isEmpty) return null;
+    final decoded = jsonDecode(dataLines.join('\n'));
+    if (decoded is! Map) return null;
+    return Map<String, dynamic>.from(decoded);
   }
 
   /// Active/désactive ("ban") un compte `users` — voir

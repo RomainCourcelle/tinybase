@@ -129,7 +129,11 @@ class _HomeShellBodyState extends State<_HomeShellBody> {
         }
         return ChangeNotifierProvider<RecordsProvider>(
           key: ValueKey('records-${selected.name}'),
-          create: (_) => RecordsProvider(collectionsProvider.client, selected.name)..load(),
+          create: (_) {
+            final provider = RecordsProvider(collectionsProvider.client, selected.name)..load();
+            provider.startRealtime();
+            return provider;
+          },
           child: RecordsScreen(collection: selected),
         );
       case _MainPane.collectionForm:
@@ -252,12 +256,13 @@ class _Sidebar extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'TinyBase',
+                    context.watch<ConnectionProvider>().displayName,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: AppColors.text,
                           fontWeight: FontWeight.w700,
                           letterSpacing: -0.2,
                         ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 IconButton(

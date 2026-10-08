@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/connection_provider.dart';
+import '../services/instance_branding.dart';
 import '../theme/app_colors.dart';
 
 /// En prod (Dockerfile), le serveur TinyBase sert lui-même l'admin : l'origin
@@ -37,6 +38,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   _Step _step = _Step.url;
   bool _bootstrapping = false;
+  final String _brandName = instanceDisplayName(serverUrl: _defaultServerUrl());
 
   @override
   void initState() {
@@ -143,13 +145,16 @@ class _ConnectScreenState extends State<ConnectScreen> {
                               child: const Icon(Icons.hub_outlined, color: AppColors.accent, size: 20),
                             ),
                             const SizedBox(width: 12),
-                            Text(
-                              'TinyBase',
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    color: AppColors.text,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: -0.3,
-                                  ),
+                            Expanded(
+                              child: Text(
+                                connection.baseUrl != null ? connection.displayName : _brandName,
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      color: AppColors.text,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: -0.3,
+                                    ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ],
                         ),

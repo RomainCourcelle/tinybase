@@ -1,3 +1,10 @@
+## 0.2.0
+
+- File uploads via multipart on `create` / `update` (`FileUpload`).
+- `TinyBaseCollection.fileUrl` for download URLs.
+- Realtime SSE: `TinyBaseCollection.subscribe()` → `Stream<RecordChange>`.
+- `TinyBaseClient.meta()` for public instance metadata (`appName`).
+
 ## 0.1.1
 
 - Shorten pubspec description (pub points).

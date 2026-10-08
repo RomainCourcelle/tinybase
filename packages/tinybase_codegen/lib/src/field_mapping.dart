@@ -34,6 +34,7 @@ class FieldMapping {
       case FieldType.url:
       case FieldType.select:
       case FieldType.relation:
+      case FieldType.file:
         return 'String';
     }
   }
@@ -70,6 +71,7 @@ class FieldMapping {
       case FieldType.url:
       case FieldType.select:
       case FieldType.relation:
+      case FieldType.file:
         return required ? "json['$jsonKey'] as String" : "json['$jsonKey'] as String?";
     }
   }
@@ -90,6 +92,7 @@ class FieldMapping {
       case FieldType.url:
       case FieldType.select:
       case FieldType.relation:
+      case FieldType.file:
         return fieldName;
     }
   }

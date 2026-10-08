@@ -1,9 +1,11 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'auth.dart';
 import 'collection.dart';
+import 'file_upload.dart';
 import 'token_store.dart';
 
 /// Error returned by the TinyBase API or the client itself.
@@ -31,6 +33,9 @@ class TinyBaseClient {
 
   final http.Client _http;
 
+  /// Underlying HTTP client (used for streaming / multipart).
+  http.Client get httpClient => _http;
+
   /// Auth API (login, register, OAuth, restore).
   late final TinyBaseAuth auth = TinyBaseAuth(this);
 
@@ -53,6 +58,12 @@ class TinyBaseClient {
     return Uri.parse('$baseUrl$path').replace(
       queryParameters: query?.map((k, v) => MapEntry(k, v.toString())),
     );
+  }
+
+  /// Public meta (`GET /api/meta`) — branding, etc.
+  Future<Map<String, dynamic>> meta() async {
+    final json = await requestJson('GET', '/api/meta', auth: false);
+    return Map<String, dynamic>.from(json as Map);
   }
 
   /// Sends an HTTP request with Bearer token and one refresh retry on `401`.
@@ -102,6 +113,59 @@ class TinyBaseClient {
     }
 
     return response;
+  }
+
+  /// Multipart create/update with a JSON `data` field + named file parts.
+  Future<dynamic> requestMultipart(
+    String method,
+    String path, {
+    required Map<String, dynamic> data,
+    required Map<String, FileUpload> files,
+    bool auth = true,
+    bool retried = false,
+  }) async {
+    final request = http.MultipartRequest(method.toUpperCase(), uri(path));
+    if (auth) {
+      final token = await tokenStore.readAccessToken();
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    }
+    request.fields['data'] = jsonEncode(data);
+    for (final entry in files.entries) {
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          entry.key,
+          entry.value.bytes,
+          filename: entry.value.filename,
+          contentType: entry.value.contentType == null
+              ? null
+              : MediaType.parse(entry.value.contentType!),
+        ),
+      );
+    }
+
+    late http.StreamedResponse streamed;
+    try {
+      streamed = await _http.send(request);
+    } catch (e) {
+      throw TinyBaseException(0, 'Connexion au serveur impossible : $e');
+    }
+
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode == 401 && auth && !retried) {
+      final refreshed = await this.auth.tryRefresh();
+      if (refreshed) {
+        return requestMultipart(method, path, data: data, files: files, auth: auth, retried: true);
+      }
+    }
+
+    final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return decoded;
+    }
+    final message =
+        (decoded is Map && decoded['error'] != null) ? decoded['error'].toString() : response.body;
+    throw TinyBaseException(response.statusCode, message);
   }
 
   /// Decodes JSON and throws [TinyBaseException] when status >= 400.

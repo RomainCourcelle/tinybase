@@ -9,9 +9,9 @@
 // avec Romain) — les groupes s'exécutent dans l'ordre déclaré et partagent
 // un état (admin connecté, utilisateurs créés, collections créées), comme
 // un vrai scénario d'utilisation plutôt que des tests unitaires isolés.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -20,8 +20,7 @@ import 'package:tinybase/core/config.dart';
 import 'package:tinybase/db/database.dart';
 
 /// Petit client de test par-dessus le Handler shelf — évite de reconstruire
-/// une `Request` à la main à chaque appel. Volontairement minimal (pas de
-/// gestion d'upload de fichiers, inutile ici).
+/// une `Request` à la main à chaque appel.
 class _TestClient {
   final Handler handler;
   _TestClient(this.handler);
@@ -54,6 +53,131 @@ class _TestClient {
   Future<(int, dynamic)> patch(String path, {Map<String, dynamic>? json, String? token}) =>
       _send('PATCH', path, json: json, token: token);
   Future<(int, dynamic)> delete(String path, {String? token}) => _send('DELETE', path, token: token);
+
+  Future<(int, dynamic)> postMultipart(
+    String path, {
+    required Map<String, String> fields,
+    required Map<String, ({String filename, List<int> bytes, String? contentType})> files,
+    String? token,
+  }) async {
+    final boundary = '----TinyBaseTestBoundary${DateTime.now().microsecondsSinceEpoch}';
+    final body = BytesBuilder();
+
+    void writeLine(String line) {
+      body.add(utf8.encode('$line\r\n'));
+    }
+
+    for (final entry in fields.entries) {
+      writeLine('--$boundary');
+      writeLine('Content-Disposition: form-data; name="${entry.key}"');
+      writeLine('');
+      writeLine(entry.value);
+    }
+    for (final entry in files.entries) {
+      writeLine('--$boundary');
+      writeLine(
+        'Content-Disposition: form-data; name="${entry.key}"; filename="${entry.value.filename}"',
+      );
+      writeLine('Content-Type: ${entry.value.contentType ?? 'application/octet-stream'}');
+      writeLine('');
+      body.add(entry.value.bytes);
+      body.add(utf8.encode('\r\n'));
+    }
+    writeLine('--$boundary--');
+
+    final request = Request(
+      'POST',
+      Uri.parse('http://localhost$path'),
+      headers: {
+        'content-type': 'multipart/form-data; boundary=$boundary',
+        if (token != null) 'authorization': 'Bearer $token',
+      },
+      body: body.takeBytes(),
+    );
+    final response = await handler(request);
+    final rawBody = await response.readAsString();
+    final decoded = rawBody.isEmpty ? null : jsonDecode(rawBody);
+    return (response.statusCode, decoded);
+  }
+
+  Future<(int, List<int>, String?)> getBytes(String path, {String? token}) async {
+    final request = Request(
+      'GET',
+      Uri.parse('http://localhost$path'),
+      headers: {
+        if (token != null) 'authorization': 'Bearer $token',
+      },
+    );
+    final response = await handler(request);
+    final bytes = await response.read().fold<List<int>>(<int>[], (a, b) => a..addAll(b));
+    return (response.statusCode, bytes, response.headers['content-type']);
+  }
+
+  /// Abonnement SSE minimal pour les tests (lit jusqu'à cancel).
+  _SseSubscription subscribeSse(
+    String path, {
+    String? token,
+    required void Function(Map<String, dynamic> data) onEvent,
+  }) {
+    final request = Request(
+      'GET',
+      Uri.parse('http://localhost$path'),
+      headers: {
+        'accept': 'text/event-stream',
+        if (token != null) 'authorization': 'Bearer $token',
+      },
+    );
+    final responseFuture = () async => await handler(request);
+    return _SseSubscription(responseFuture(), onEvent);
+  }
+}
+
+class _SseSubscription {
+  final Future<Response> _responseFuture;
+  final void Function(Map<String, dynamic> data) onEvent;
+  StreamSubscription<List<int>>? _sub;
+  var _buffer = '';
+  var _cancelled = false;
+  final ready = Completer<void>();
+
+  _SseSubscription(this._responseFuture, this.onEvent) {
+    // ignore: discarded_futures
+    _start();
+  }
+
+  Future<void> _start() async {
+    final response = await _responseFuture;
+    if (_cancelled) {
+      if (!ready.isCompleted) ready.complete();
+      return;
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (!ready.isCompleted) ready.complete();
+      return;
+    }
+    _sub = response.read().listen((chunk) {
+      _buffer += utf8.decode(chunk);
+      while (true) {
+        final sep = _buffer.indexOf('\n\n');
+        if (sep < 0) break;
+        final block = _buffer.substring(0, sep);
+        _buffer = _buffer.substring(sep + 2);
+        final dataLines = <String>[];
+        for (final line in block.split('\n')) {
+          if (line.startsWith('data:')) dataLines.add(line.substring(5).trim());
+        }
+        if (dataLines.isEmpty) continue;
+        final decoded = jsonDecode(dataLines.join('\n'));
+        if (decoded is Map) onEvent(Map<String, dynamic>.from(decoded));
+      }
+    });
+    if (!ready.isCompleted) ready.complete();
+  }
+
+  Future<void> cancel() async {
+    _cancelled = true;
+    await _sub?.cancel();
+  }
 }
 
 void main() {
@@ -749,6 +873,110 @@ void main() {
         token: _sharedAdminToken,
       );
       expect(disableStatus, 200);
+    });
+  });
+
+  group('8. Meta, fichiers et realtime', () {
+    late String docsAdminToken;
+    late String docRecordId;
+
+    setUpAll(() async {
+      // Autonome : login si le groupe 1 a déjà créé l'admin, sinon setup.
+      var (status, body) = await client.post('/api/admin/auth/login', json: {
+        'email': 'admin@example.com',
+        'password': 'admin1234',
+      });
+      if (status != 200) {
+        (status, body) = await client.post('/api/admin/auth/setup', json: {
+          'email': 'admin@example.com',
+          'password': 'admin1234',
+        });
+      }
+      expect(status, anyOf(200, 201));
+      docsAdminToken = body['accessToken'] as String;
+    });
+
+    test('GET /api/meta renvoie appName (null par défaut)', () async {
+      final (status, body) = await client.get('/api/meta');
+      expect(status, 200);
+      expect(body, containsPair('appName', null));
+    });
+
+    test('crée une collection docs avec champ file', () async {
+      final (status, body) = await client.post(
+        '/api/admin/collections',
+        json: {
+          'name': 'docs',
+          'type': 'base',
+          'fields': [
+            {'name': 'title', 'type': 'text', 'required': true, 'options': []},
+            {'name': 'attachment', 'type': 'file', 'required': false, 'options': []},
+          ],
+          'listRule': '',
+          'viewRule': '',
+          'createRule': '',
+          'updateRule': '',
+          'deleteRule': '',
+        },
+        token: docsAdminToken,
+      );
+      expect(status, 201);
+      expect((body['fields'] as List).any((f) => f['type'] == 'file'), isTrue);
+    });
+
+    test('create multipart avec fichier', () async {
+      final (status, body) = await client.postMultipart(
+        '/api/collections/docs/records',
+        fields: {
+          'data': jsonEncode({'title': 'Mon doc'}),
+        },
+        files: {
+          'attachment': (filename: 'hello.txt', bytes: utf8.encode('hello tinybase'), contentType: 'text/plain'),
+        },
+        token: docsAdminToken,
+      );
+      expect(status, 201);
+      expect(body['title'], 'Mon doc');
+      expect(body['attachment'], isNotEmpty);
+      docRecordId = body['id'] as String;
+    });
+
+    test('GET file download', () async {
+      final (status, bytes, contentType) = await client.getBytes(
+        '/api/collections/docs/records/$docRecordId/files/attachment',
+        token: docsAdminToken,
+      );
+      expect(status, 200);
+      expect(utf8.decode(bytes), 'hello tinybase');
+      expect(contentType, isNotNull);
+    });
+
+    test('SSE realtime émet un event create', () async {
+      final events = <Map<String, dynamic>>[];
+      final sub = client.subscribeSse(
+        '/api/collections/docs/realtime',
+        token: docsAdminToken,
+        onEvent: (data) => events.add(data),
+      );
+      await sub.ready.future.timeout(const Duration(seconds: 2));
+
+      final (status, body) = await client.post(
+        '/api/collections/docs/records',
+        json: {'title': 'Via SSE'},
+        token: docsAdminToken,
+      );
+      expect(status, 201);
+
+      // Attendre l'event (timeout court).
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (events.isEmpty && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      await sub.cancel();
+
+      expect(events, isNotEmpty);
+      expect(events.first['action'], 'create');
+      expect(events.first['recordId'], body['id']);
     });
   });
 }

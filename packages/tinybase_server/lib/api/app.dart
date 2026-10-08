@@ -9,6 +9,8 @@ import '../db/database.dart';
 import '../services/admin_service.dart';
 import '../services/auth_service.dart';
 import '../services/collections_service.dart';
+import '../services/files_service.dart';
+import '../services/realtime_hub.dart';
 import '../services/records_service.dart';
 import '../services/settings_service.dart';
 import 'middleware/auth_middleware.dart';
@@ -17,6 +19,7 @@ import 'routes/admin_auth_routes.dart';
 import 'routes/auth_routes.dart';
 import 'routes/collections_routes.dart';
 import 'routes/discord_auth_routes.dart';
+import 'routes/meta_routes.dart';
 import 'routes/microsoft_auth_routes.dart';
 import 'routes/native_oauth_routes.dart';
 import 'routes/records_routes.dart';
@@ -28,7 +31,14 @@ Handler buildApp() {
   final authService = AuthService(Database.instance, settingsService);
   final adminService = AdminService(Database.instance);
   final collectionsService = CollectionsService(Database.instance);
-  final recordsService = RecordsService(Database.instance, collectionsService);
+  final realtimeHub = RealtimeHub();
+  final filesService = FilesService();
+  final recordsService = RecordsService(
+    Database.instance,
+    collectionsService,
+    files: filesService,
+    realtime: realtimeHub,
+  );
 
   final root = Router();
 
@@ -62,7 +72,8 @@ Handler buildApp() {
   // l'admin, voir records_service.dart), donc une route admin dédiée.
   root.mount('/api/admin/users', adminPipeline.addHandler(buildUsersAdminRoutes(authService).call));
 
-  root.mount('/api/collections', buildRecordsRoutes(recordsService).call);
+  root.mount('/api/meta', buildMetaRoutes().call);
+  root.mount('/api/collections', buildRecordsRoutes(recordsService, realtimeHub).call);
 
   root.get('/health', (Request request) => Response.ok('{"ok":true}', headers: {'content-type': 'application/json'}));
 

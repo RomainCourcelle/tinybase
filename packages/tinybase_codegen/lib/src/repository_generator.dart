@@ -9,6 +9,12 @@ class RepositoryGenerator {
     final repoName = '${className}Repository';
     final collectionName = collection.name;
     final snake = toSnakeCase(collection.name);
+    final hasFileFields = collection.fields.any((f) => f.type == FieldType.file);
+
+    final filesParam = hasFileFields
+        ? ', {\n    Map<String, FileUpload>? files,\n  }'
+        : '';
+    final filesArg = hasFileFields ? ', files: files' : '';
 
     return '''
 // GÉNÉRÉ par TinyBase codegen — ne pas éditer à la main.
@@ -61,17 +67,17 @@ class $repoName {
     }
   }
 
-  Future<$className> create(Map<String, dynamic> data) async {
+  Future<$className> create(Map<String, dynamic> data$filesParam) async {
     try {
-      return $className.fromJson(await _col.create(data));
+      return $className.fromJson(await _col.create(data$filesArg));
     } on TinyBaseException catch (e) {
       throw ${repoName}Exception(e.statusCode, e.message);
     }
   }
 
-  Future<$className> update(String id, Map<String, dynamic> data) async {
+  Future<$className> update(String id, Map<String, dynamic> data$filesParam) async {
     try {
-      return $className.fromJson(await _col.update(id, data));
+      return $className.fromJson(await _col.update(id, data$filesArg));
     } on TinyBaseException catch (e) {
       throw ${repoName}Exception(e.statusCode, e.message);
     }
@@ -84,6 +90,12 @@ class $repoName {
       throw ${repoName}Exception(e.statusCode, e.message);
     }
   }
+
+  /// URL de téléchargement d'un champ fichier.
+  String fileUrl(String recordId, String field) => _col.fileUrl(recordId, field);
+
+  /// Abonnement SSE aux changements de la collection.
+  Stream<RecordChange> subscribe() => _col.subscribe();
 }
 ''';
   }

@@ -17,9 +17,11 @@ Backend léger (SQLite) + admin Flutter Web + client Dart/Flutter + codegen.
 Variables importantes :
 
 - `DB_PATH` → chemin **sur le volume** (ex. `/data/tinybase.db`)
-- Volume monté sur le même préfixe (ex. `/data`)
+- Volume monté sur le même préfixe (ex. `/data`) — couvre aussi `files/` et `.jwt_secret`
 - `PORT` injecté par Railway
 - `JWT_SECRET` recommandé si plusieurs instances (sinon fichier `.jwt_secret` à côté de la DB)
+- `APP_NAME` (optionnel) → nom affiché dans l'admin (sinon dérivé du domaine)
+- `FILES_DIR` / `MAX_FILE_SIZE` (optionnels) → stockage fichiers
 
 Sans `DB_PATH` sur volume, la base est perdue à chaque redeploy.
 

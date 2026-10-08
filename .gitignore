@@ -21,6 +21,9 @@ build/
 .jwt_secret
 **/.jwt_secret
 
+# Uploads locaux (FieldType.file) — jamais dans le repo
+**/files/
+
 # IDE
 .idea/
 *.iml

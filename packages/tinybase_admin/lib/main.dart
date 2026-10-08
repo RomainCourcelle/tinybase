@@ -19,7 +19,7 @@ class AdminApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => ConnectionProvider()..tryRestoreSession(),
       child: MaterialApp(
-        title: 'TinyBase',
+        onGenerateTitle: (context) => context.read<ConnectionProvider>().displayName,
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
         themeMode: ThemeMode.dark,

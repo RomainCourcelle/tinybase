@@ -18,8 +18,8 @@
 - [x] Setup admin atomique + filtre `IS NULL` + email normalisé
 
 ## V2
-- [ ] Stockage de fichiers (local d'abord, S3-compatible ensuite)
-- [ ] Temps réel (SSE sur les changements de collection)
+- [x] Stockage de fichiers (local d'abord, S3-compatible ensuite)
+- [x] Temps réel (SSE sur les changements de collection)
 - [ ] Batch API (plusieurs opérations transactionnelles en un call)
 - [ ] Backups automatiques programmés
 - [ ] Logs/dashboard admin avancé
@@ -29,3 +29,4 @@
 - [ ] Parseur de filtre avec parenthèses et précédence complète
 - [ ] Expand / relations (FK) + validation select/email/url
 - [ ] Rotation / révocation des refresh tokens
+- [ ] Stockage S3-compatible (suite fichiers)

@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 import '../services/api_client.dart';
+import '../services/instance_branding.dart';
 
 /// État de connexion au serveur TinyBase (URL + session admin email/mot de
 /// passe — voir AdminService côté serveur), persisté en local
@@ -16,6 +19,7 @@ class ConnectionProvider extends ChangeNotifier {
   String? _baseUrl;
   String? _adminEmail;
   ApiClient? _client;
+  String? _configuredAppName;
   bool _isConnecting = false;
   String? _errorMessage;
   bool _restoring = true;
@@ -27,6 +31,12 @@ class ConnectionProvider extends ChangeNotifier {
   bool get isRestoring => _restoring;
   String? get errorMessage => _errorMessage;
   ApiClient get client => _client!;
+
+  /// Nom affiché dans l'UI (APP_NAME ou dérivé du domaine).
+  String get displayName => instanceDisplayName(
+        configuredName: _configuredAppName,
+        serverUrl: _baseUrl,
+      );
 
   Future<void> tryRestoreSession() async {
     try {
@@ -43,6 +53,12 @@ class ConnectionProvider extends ChangeNotifier {
     }
   }
 
+  /// Précharge le branding pour une URL (écran de connexion).
+  Future<String> previewDisplayName(String url) async {
+    final configured = await _fetchAppName(url.trim());
+    return instanceDisplayName(configuredName: configured, serverUrl: url.trim());
+  }
+
   /// Vérifie l'adresse du serveur ET si un compte admin existe déjà dessus
   /// — décide, côté [ConnectScreen], d'afficher le formulaire "créer le
   /// premier compte admin" ou "se connecter".
@@ -52,6 +68,8 @@ class ConnectionProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final hasAdmin = await AdminAuthClient(baseUrl: url.trim()).hasAdmin();
+      _configuredAppName = await _fetchAppName(url.trim());
+      _baseUrl = url.trim();
       _isConnecting = false;
       notifyListeners();
       return hasAdmin;
@@ -94,6 +112,7 @@ class ConnectionProvider extends ChangeNotifier {
     _baseUrl = normalized;
     _adminEmail = email;
     _client = ApiClient(baseUrl: normalized, accessToken: accessToken);
+    _configuredAppName = await _fetchAppName(normalized);
     _isConnecting = false;
     notifyListeners();
 
@@ -109,6 +128,22 @@ class ConnectionProvider extends ChangeNotifier {
     }
   }
 
+  Future<String?> _fetchAppName(String url) async {
+    try {
+      final normalized = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+      final response = await http.get(Uri.parse('$normalized/api/meta')).timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200) return null;
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map && decoded['appName'] != null) {
+        final name = decoded['appName'].toString().trim();
+        return name.isEmpty ? null : name;
+      }
+    } catch (_) {
+      // Best effort — fallback domaine.
+    }
+    return null;
+  }
+
   /// Efface une erreur réseau issue d'une tentative de connexion
   /// silencieuse (voir ConnectScreen._canAutoConnect) — l'utilisateur n'a
   /// rien demandé, ça ne doit pas s'afficher comme un vrai message d'erreur
@@ -121,6 +156,7 @@ class ConnectionProvider extends ChangeNotifier {
     _client = null;
     _baseUrl = null;
     _adminEmail = null;
+    _configuredAppName = null;
     notifyListeners();
     try {
       final prefs = await SharedPreferences.getInstance();
