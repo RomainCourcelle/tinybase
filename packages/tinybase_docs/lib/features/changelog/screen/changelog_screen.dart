@@ -73,6 +73,13 @@ class _ChangeEntry {
 
 const _entries = <_ChangeEntry>[
   _ChangeEntry(
+    version: '0.3.2',
+    date: '2026-10',
+    bullets: [
+      'Docs hébergées : lien `documentation` pub.dev → site Railway.',
+    ],
+  ),
+  _ChangeEntry(
     version: '0.3.1',
     date: '2026-10',
     bullets: [

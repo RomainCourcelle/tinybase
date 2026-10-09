@@ -4,7 +4,7 @@ class AppConfig {
   static const String packageName = 'tinybase_docs';
 
   /// Docs / monorepo release tag (aligned with tinybase_client).
-  static const String version = '0.3.1';
+  static const String version = '0.3.2';
 
   static const String githubUrl =
       'https://github.com/RomainCourcelle/tinybase';

@@ -2,6 +2,8 @@
 
 Client Flutter/Dart pour le backend **[TinyBase](https://github.com/RomainCourcelle/tinybase)** (auth, JWT, CRUD, fichiers, realtime).
 
+**Docs :** [Getting Started](https://tinybase-documentation.up.railway.app/)
+
 > Pas affilié à la bibliothèque JavaScript [TinyBase](https://tinybase.org/).
 
 ## Install

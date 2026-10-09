@@ -1,3 +1,7 @@
+## 0.3.2
+
+- Point `documentation` to the hosted Getting Started site.
+
 ## 0.3.1
 
 - `TinyBaseCollection.downloadFile` (Bearer + refresh retry).

@@ -13,8 +13,8 @@ Backend léger (SQLite) + admin Flutter Web + client Dart/Flutter + codegen.
 | [`tinybase_codegen`](packages/tinybase_codegen) | Génération modèles / Provider / Riverpod |
 | [`tinybase_shared`](packages/tinybase_shared) | Types partagés |
 
-Doc : [`packages/tinybase_docs`](packages/tinybase_docs) — Flutter Web (Getting Started + Exemple).  
-Déploie sur Railway avec **Dockerfile Path** = `packages/tinybase_docs/Dockerfile` (service séparé de l’API).
+**Docs en ligne :** [https://tinybase-documentation.up.railway.app/](https://tinybase-documentation.up.railway.app/)  
+Source : [`packages/tinybase_docs`](packages/tinybase_docs) — Dockerfile Path = `packages/tinybase_docs/Dockerfile` (service Railway séparé de l’API).
 
 ## Railway (prod)
 
