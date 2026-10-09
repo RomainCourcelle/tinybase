@@ -1,6 +1,6 @@
 {
-    "name": "tinybase_docs",
-    "short_name": "tinybase_docs",
+    "name": "tinybase_doc",
+    "short_name": "tinybase_doc",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
