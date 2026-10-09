@@ -5,7 +5,9 @@ WORKDIR /repo
 COPY packages/tinybase_docs packages/tinybase_docs
 WORKDIR /repo/packages/tinybase_docs
 RUN flutter pub get
-RUN flutter build web --release
+# Pas de service worker : une doc web n'a pas besoin d'offline PWA, et le SW
+# gardait d'anciens builds (v0.3.1) malgré les redeploys.
+RUN flutter build web --release --pwa-strategy=none
 
 FROM nginx:alpine
 COPY packages/tinybase_docs/nginx.conf /etc/nginx/conf.d/default.conf
