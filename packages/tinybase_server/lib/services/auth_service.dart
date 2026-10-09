@@ -306,9 +306,10 @@ class AuthService {
     );
 
     final link = Config.passwordResetLink(rawToken);
-    if (Config.smtpConfigured && link != null) {
+    final smtp = await settings.getSmtpConfig();
+    if (smtp != null && link != null) {
       try {
-        await mail.sendPasswordReset(toEmail: normalized, resetLink: link);
+        await mail.sendPasswordReset(toEmail: normalized, resetLink: link, smtp: smtp);
       } catch (e) {
         // ignore: avoid_print
         print('SMTP password-reset failed: $e');

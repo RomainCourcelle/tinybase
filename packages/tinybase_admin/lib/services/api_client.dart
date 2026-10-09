@@ -359,6 +359,13 @@ class ApiClient {
     String? appleKeyId,
     String? applePrivateKey,
     bool disableApple = false,
+    String? smtpHost,
+    int? smtpPort,
+    String? smtpUser,
+    String? smtpPassword,
+    String? smtpFrom,
+    bool? smtpSsl,
+    bool disableSmtp = false,
     int? accessTokenTtlHours,
     int? refreshTokenTtlDays,
   }) {
@@ -378,6 +385,13 @@ class ApiClient {
     if (appleKeyId != null) body['appleKeyId'] = appleKeyId;
     if (applePrivateKey != null) body['applePrivateKey'] = applePrivateKey;
     if (disableApple) body['disableApple'] = true;
+    if (smtpHost != null) body['smtpHost'] = smtpHost;
+    if (smtpPort != null) body['smtpPort'] = smtpPort;
+    if (smtpUser != null) body['smtpUser'] = smtpUser;
+    if (smtpPassword != null) body['smtpPassword'] = smtpPassword;
+    if (smtpFrom != null) body['smtpFrom'] = smtpFrom;
+    if (smtpSsl != null) body['smtpSsl'] = smtpSsl;
+    if (disableSmtp) body['disableSmtp'] = true;
     if (accessTokenTtlHours != null) body['accessTokenTtlHours'] = accessTokenTtlHours;
     if (refreshTokenTtlDays != null) body['refreshTokenTtlDays'] = refreshTokenTtlDays;
 

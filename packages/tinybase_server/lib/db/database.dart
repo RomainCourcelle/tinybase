@@ -41,6 +41,7 @@ class Database {
     await _bootstrapSettingsTable();
     await _migrateSettingsAuthTtl();
     await _migrateSettingsOAuthProviders();
+    await _migrateSettingsSmtp();
     await _migrateUsersOAuthIds();
     await _bootstrapAdminsTable();
     await _bootstrapRefreshTokensTable();
@@ -216,6 +217,26 @@ class Database {
       'apple_team_id TEXT',
       'apple_key_id TEXT',
       'apple_private_key TEXT',
+    ];
+    for (final def in extras) {
+      final name = def.split(' ').first;
+      if (!names.contains(name)) {
+        await instance.execute('ALTER TABLE _settings ADD COLUMN $def;');
+      }
+    }
+  }
+
+  /// SMTP (reset password) — configuré via admin, comme les secrets OAuth.
+  static Future<void> _migrateSettingsSmtp() async {
+    final columns = await instance.getAll('PRAGMA table_info(_settings)');
+    final names = columns.map((c) => c['name'] as String).toSet();
+    const extras = [
+      'smtp_host TEXT',
+      'smtp_port INTEGER',
+      'smtp_user TEXT',
+      'smtp_password TEXT',
+      'smtp_from TEXT',
+      'smtp_ssl INTEGER',
     ];
     for (final def in extras) {
       final name = def.split(' ').first;

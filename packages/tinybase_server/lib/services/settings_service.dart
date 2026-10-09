@@ -1,5 +1,61 @@
 import 'package:sqlite_async/sqlite_async.dart';
 
+import '../core/config.dart';
+
+/// Config SMTP résolue (admin `_settings`, sinon fallback env `SMTP_*`).
+class SmtpConfig {
+  final String host;
+  final int port;
+  final String? user;
+  final String? password;
+  final String from;
+  final bool ssl;
+
+  const SmtpConfig({
+    required this.host,
+    required this.port,
+    this.user,
+    this.password,
+    required this.from,
+    required this.ssl,
+  });
+}
+
+/// Vue publique SMTP (mot de passe jamais exposé — seul [passwordSet]).
+class SmtpPublic {
+  final bool configured;
+  final String? host;
+  final int port;
+  final String? user;
+  final String? from;
+  final bool ssl;
+  final bool passwordSet;
+  /// true si la config active vient des variables d'env (fallback legacy).
+  final bool fromEnv;
+
+  const SmtpPublic({
+    required this.configured,
+    this.host,
+    this.port = 587,
+    this.user,
+    this.from,
+    this.ssl = false,
+    this.passwordSet = false,
+    this.fromEnv = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'configured': configured,
+        'host': host,
+        'port': port,
+        'user': user,
+        'from': from,
+        'ssl': ssl,
+        'passwordSet': passwordSet,
+        'fromEnv': fromEnv,
+      };
+}
+
 /// Config publique d'un provider OAuth (secrets jamais exposés — seul [secretSet]).
 class OAuthProviderPublic {
   final bool enabled;
@@ -35,6 +91,7 @@ class AppSettings {
   final OAuthProviderPublic google;
   final OAuthProviderPublic apple;
   final OAuthProviderPublic microsoft;
+  final SmtpPublic smtp;
   final int accessTokenTtlHours;
   final int refreshTokenTtlDays;
   final DateTime updated;
@@ -45,6 +102,7 @@ class AppSettings {
     required this.google,
     required this.apple,
     required this.microsoft,
+    required this.smtp,
     required this.accessTokenTtlHours,
     required this.refreshTokenTtlDays,
     required this.updated,
@@ -92,12 +150,43 @@ class AppSettings {
       privateKeySet: appleKey,
     );
 
+    final smtpHost = s('smtp_host');
+    final smtpFrom = s('smtp_from');
+    final smtpInDb = (smtpHost?.isNotEmpty ?? false) && (smtpFrom?.isNotEmpty ?? false);
+    final SmtpPublic smtp;
+    if (smtpInDb) {
+      smtp = SmtpPublic(
+        configured: true,
+        host: smtpHost,
+        port: (row['smtp_port'] as int?) ?? 587,
+        user: s('smtp_user'),
+        from: smtpFrom,
+        ssl: (row['smtp_ssl'] as int?) == 1,
+        passwordSet: has('smtp_password'),
+        fromEnv: false,
+      );
+    } else if (Config.smtpConfigured) {
+      smtp = SmtpPublic(
+        configured: true,
+        host: Config.smtpHost,
+        port: Config.smtpPort,
+        user: Config.smtpUser,
+        from: Config.smtpFrom,
+        ssl: Config.smtpSsl,
+        passwordSet: Config.smtpPassword != null && Config.smtpPassword!.isNotEmpty,
+        fromEnv: true,
+      );
+    } else {
+      smtp = const SmtpPublic(configured: false);
+    }
+
     return AppSettings(
       registrationsOpen: (row['registrations_open'] as int) == 1,
       discord: browser('discord_client_id', 'discord_client_secret'),
       google: browser('google_client_id', 'google_client_secret'),
       microsoft: browser('microsoft_client_id', 'microsoft_client_secret'),
       apple: apple,
+      smtp: smtp,
       accessTokenTtlHours: (row['auth_access_ttl_hours'] as int?) ?? 2,
       refreshTokenTtlDays: (row['auth_refresh_ttl_days'] as int?) ?? 30,
       updated: DateTime.parse(row['updated'] as String),
@@ -115,6 +204,7 @@ class AppSettings {
           'apple': apple.toJson(),
           'microsoft': microsoft.toJson(),
         },
+        'smtp': smtp.toJson(),
         'accessTokenTtlHours': accessTokenTtlHours,
         'refreshTokenTtlDays': refreshTokenTtlDays,
         'updated': updated.toIso8601String(),
@@ -162,6 +252,44 @@ class SettingsService {
     );
   }
 
+  /// SMTP effectif pour l'envoi d'emails. Admin d'abord, sinon fallback `SMTP_*`.
+  Future<SmtpConfig?> getSmtpConfig() async {
+    final row = await db.getOptional(
+      "SELECT smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, smtp_ssl "
+      "FROM _settings WHERE id = 'settings'",
+    );
+    String? s(String key) {
+      final v = row?[key] as String?;
+      return (v == null || v.isEmpty) ? null : v;
+    }
+
+    final host = s('smtp_host');
+    final from = s('smtp_from');
+    if (host != null && from != null) {
+      return SmtpConfig(
+        host: host,
+        port: (row?['smtp_port'] as int?) ?? 587,
+        user: s('smtp_user'),
+        password: s('smtp_password'),
+        from: from,
+        ssl: (row?['smtp_ssl'] as int?) == 1,
+      );
+    }
+    if (Config.smtpConfigured) {
+      return SmtpConfig(
+        host: Config.smtpHost!,
+        port: Config.smtpPort,
+        user: Config.smtpUser,
+        password: Config.smtpPassword,
+        from: Config.smtpFrom!,
+        ssl: Config.smtpSsl,
+      );
+    }
+    return null;
+  }
+
+  Future<bool> isSmtpConfigured() async => await getSmtpConfig() != null;
+
   /// Mise à jour partielle. Pour un provider, passer [disableX] clear les credentials.
   /// Secrets : chaîne vide / null = ne pas toucher (sauf disable).
   Future<AppSettings> update({
@@ -186,6 +314,14 @@ class SettingsService {
     String? appleKeyId,
     String? applePrivateKey,
     bool disableApple = false,
+    // SMTP
+    String? smtpHost,
+    int? smtpPort,
+    String? smtpUser,
+    String? smtpPassword,
+    String? smtpFrom,
+    bool? smtpSsl,
+    bool disableSmtp = false,
   }) async {
     if (accessTokenTtlHours != null && (accessTokenTtlHours < 1 || accessTokenTtlHours > 72)) {
       throw SettingsException('accessTokenTtlHours doit être entre 1 et 72');
@@ -256,6 +392,26 @@ class SettingsService {
       if (appleTeamId != null) setNullable('apple_team_id', appleTeamId);
       if (appleKeyId != null) setNullable('apple_key_id', appleKeyId);
       setSecret('apple_private_key', applePrivateKey);
+    }
+
+    if (disableSmtp) {
+      clear(['smtp_host', 'smtp_port', 'smtp_user', 'smtp_password', 'smtp_from', 'smtp_ssl']);
+    } else {
+      if (smtpHost != null) setNullable('smtp_host', smtpHost);
+      if (smtpFrom != null) setNullable('smtp_from', smtpFrom);
+      if (smtpUser != null) setNullable('smtp_user', smtpUser);
+      if (smtpPort != null) {
+        if (smtpPort < 1 || smtpPort > 65535) {
+          throw SettingsException('smtpPort doit être entre 1 et 65535');
+        }
+        sets.add('smtp_port = ?');
+        values.add(smtpPort);
+      }
+      if (smtpSsl != null) {
+        sets.add('smtp_ssl = ?');
+        values.add(smtpSsl ? 1 : 0);
+      }
+      setSecret('smtp_password', smtpPassword);
     }
 
     await db.execute("UPDATE _settings SET ${sets.join(', ')} WHERE id = 'settings'", values);

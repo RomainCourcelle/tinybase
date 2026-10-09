@@ -84,6 +84,8 @@ class Config {
     return '$base/reset-password?token=${Uri.encodeComponent(token)}';
   }
 
+  /// Fallback legacy : préférer Admin → Réglages → Email / SMTP.
+  /// Si `_settings` n'a pas de SMTP, ces env restent utilisées.
   static String? get smtpHost => _env('SMTP_HOST');
   static int get smtpPort {
     final raw = _env('SMTP_PORT');

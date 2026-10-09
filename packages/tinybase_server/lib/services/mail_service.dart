@@ -2,27 +2,27 @@ import 'package:mailer/mailer.dart';
 import 'package:mailer/smtp_server.dart';
 
 import '../core/config.dart';
+import 'settings_service.dart';
 
-/// Envoi d'emails optionnel (SMTP). No-op si [Config.smtpConfigured] est false.
+/// Envoi d'emails optionnel (SMTP). No-op si [smtp] est null.
 class MailService {
   Future<void> sendPasswordReset({
     required String toEmail,
     required String resetLink,
+    required SmtpConfig smtp,
   }) async {
-    if (!Config.smtpConfigured) return;
-
     final server = SmtpServer(
-      Config.smtpHost!,
-      port: Config.smtpPort,
-      username: Config.smtpUser,
-      password: Config.smtpPassword,
-      ssl: Config.smtpSsl,
-      allowInsecure: !Config.smtpSsl && Config.smtpPort != 465,
+      smtp.host,
+      port: smtp.port,
+      username: smtp.user,
+      password: smtp.password,
+      ssl: smtp.ssl,
+      allowInsecure: !smtp.ssl && smtp.port != 465,
     );
 
     final app = Config.appName ?? 'TinyBase';
     final message = Message()
-      ..from = Address(Config.smtpFrom!, app)
+      ..from = Address(smtp.from, app)
       ..recipients.add(toEmail)
       ..subject = '$app — réinitialisation du mot de passe'
       ..text = 'Tu as demandé une réinitialisation de mot de passe.\n\n'

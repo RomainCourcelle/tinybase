@@ -39,6 +39,13 @@ Router buildSettingsRoutes(SettingsService settingsService) {
         appleKeyId: body['appleKeyId'] as String?,
         applePrivateKey: body['applePrivateKey'] as String?,
         disableApple: body['disableApple'] == true,
+        smtpHost: body['smtpHost'] as String?,
+        smtpPort: (body['smtpPort'] as num?)?.toInt(),
+        smtpUser: body['smtpUser'] as String?,
+        smtpPassword: body['smtpPassword'] as String?,
+        smtpFrom: body['smtpFrom'] as String?,
+        smtpSsl: body['smtpSsl'] as bool?,
+        disableSmtp: body['disableSmtp'] == true,
       );
       return jsonResponse(settings.toJson());
     } catch (e) {

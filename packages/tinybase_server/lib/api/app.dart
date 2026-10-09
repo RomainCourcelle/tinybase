@@ -80,7 +80,7 @@ Handler buildApp() {
   // l'admin, voir records_service.dart), donc une route admin dédiée.
   root.mount('/api/admin/users', adminPipeline.addHandler(buildUsersAdminRoutes(authService).call));
 
-  root.mount('/api/meta', buildMetaRoutes().call);
+  root.mount('/api/meta', buildMetaRoutes(settingsService).call);
   root.mount('/api/collections', buildRecordsRoutes(recordsService, realtimeHub).call);
 
   // Pages web Play Store / App Store (hors admin SPA).

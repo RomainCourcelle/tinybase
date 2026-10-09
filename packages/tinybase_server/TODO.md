@@ -41,6 +41,10 @@
 - [x] SMTP optionnel + pages `/delete-account` et `/reset-password` (stores)
 - [x] CI GitHub Actions
 
+## 0.4.2 (fait)
+- [x] SMTP configurable dans Admin → Réglages (DB `_settings`) ; env `SMTP_*` = fallback
+- [x] `PUBLIC_BASE_URL` reste en variable d’env (liens email / stores)
+
 ## V2 — reste à faire
 - [ ] Batch API (plusieurs opérations transactionnelles en un call)
 - [ ] Backups automatiques programmés

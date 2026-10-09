@@ -73,14 +73,21 @@ class _ChangeEntry {
 
 const _entries = <_ChangeEntry>[
   _ChangeEntry(
+    version: '0.4.2',
+    date: '2026-10',
+    bullets: [
+      'SMTP dans Admin → Réglages (comme OAuth) ; `PUBLIC_BASE_URL` reste en env Railway.',
+      'Fallback legacy `SMTP_*` si rien n’est configuré dans l’admin.',
+    ],
+  ),
+  _ChangeEntry(
     version: '0.4.1',
     date: '2026-10',
     bullets: [
       'Session : `restore()` ne déconnecte plus sur 502/429 ; logout seulement sur 400/401/403.',
       'Refresh lock partagé au démarrage ; migration SharedPreferences → Keystore.',
       'SSE UTF-8 multi-octets ; rate-limit IP = dernier hop `X-Forwarded-For`.',
-      'SMTP optionnel pour reset password (`SMTP_*` + `PUBLIC_BASE_URL`).',
-      'Pages web Play Store : `/delete-account` et `/reset-password`.',
+      'SMTP optionnel + pages web Play Store : `/delete-account` et `/reset-password`.',
       'CI GitHub Actions (server + client).',
     ],
   ),

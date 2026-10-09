@@ -1473,6 +1473,45 @@ void main() {
       });
       expect(loginStatus, 400);
     });
+
+    test('SMTP configuré via admin → meta smtpConfigured + password jamais exposé', () async {
+      final (patchStatus, patchBody) = await client.patch(
+        '/api/admin/settings',
+        json: {
+          'smtpHost': 'smtp.example.com',
+          'smtpPort': 587,
+          'smtpUser': 'mailer',
+          'smtpPassword': 's3cret',
+          'smtpFrom': 'noreply@example.com',
+          'smtpSsl': false,
+        },
+        token: _sharedAdminToken,
+      );
+      expect(patchStatus, 200);
+      final smtp = patchBody['smtp'] as Map<String, dynamic>;
+      expect(smtp['configured'], true);
+      expect(smtp['host'], 'smtp.example.com');
+      expect(smtp['from'], 'noreply@example.com');
+      expect(smtp['passwordSet'], true);
+      expect(smtp['fromEnv'], false);
+      expect(smtp.containsKey('password'), isFalse);
+
+      final (metaStatus, metaBody) = await client.get('/api/meta');
+      expect(metaStatus, 200);
+      expect(metaBody['smtpConfigured'], true);
+
+      final (clearStatus, clearBody) = await client.patch(
+        '/api/admin/settings',
+        json: {'disableSmtp': true},
+        token: _sharedAdminToken,
+      );
+      expect(clearStatus, 200);
+      expect(clearBody['smtp']['configured'], false);
+
+      final (meta2Status, meta2Body) = await client.get('/api/meta');
+      expect(meta2Status, 200);
+      expect(meta2Body['smtpConfigured'], false);
+    });
   });
 }
 

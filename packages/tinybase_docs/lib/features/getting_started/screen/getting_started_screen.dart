@@ -30,15 +30,19 @@ class GettingStartedScreen extends StatelessWidget {
               code: r'''PORT                 # injecté par le PaaS (laisse Railway le gérer)
 DB_PATH              # ex. /data/tinybase.db  (sur le volume)
 APP_NAME             # ex. Cerebrum Base
+PUBLIC_BASE_URL      # https://ton-api.example.com (liens email + /delete-account)
 FILES_DIR            # optionnel (défaut : à côté de la DB)
 MAX_FILE_SIZE        # optionnel (défaut 10 Mo)
 CORS_ALLOW_ORIGIN    # si l’admin/docs est sur un autre domaine
 # JWT_SECRET         # recommandé si plusieurs replicas
 # AUTH_RATE_LIMIT_MAX            # défaut 20 / IP / minute
-# PUBLIC_BASE_URL                # https://ton-api.example.com (liens email + meta)
-# SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_FROM
-# PASSWORD_RESET_URL_TEMPLATE    # optionnel, doit contenir {token}
-# RETURN_PASSWORD_RESET_TOKEN    # true seulement en staging sans SMTP''',
+# RETURN_PASSWORD_RESET_TOKEN    # true seulement en staging sans SMTP
+# SMTP_*                         # fallback legacy ; préférer Admin → SMTP''',
+              detail:
+                  'SMTP (reset password) : Admin → Réglages → Email / SMTP '
+                  '(host, port, user, password, from). '
+                  'PUBLIC_BASE_URL reste une variable Railway : liens absolus '
+                  'dans les emails et URL Play Store /delete-account.',
             ),
             DocStep(
               label: 'Lancer en local',
@@ -180,9 +184,10 @@ await auth.logout(); // révoque le refresh côté serveur''',
             ),
             DocStep(
               label: 'Mot de passe oublié',
-              where: 'Écran login',
+              where: 'Écran login + Admin → Réglages → Email / SMTP',
               detail:
-                  'Avec SMTP configuré, un email est envoyé (lien `/reset-password?token=`). '
+                  '1) Configure SMTP dans l’admin. 2) Définis `PUBLIC_BASE_URL` sur Railway. '
+                  'Un email part avec le lien `{PUBLIC_BASE_URL}/reset-password?token=…`. '
                   'Sans SMTP, le token n’est renvoyé que si `RETURN_PASSWORD_RESET_TOKEN=true` (staging).',
               code: r'''await client.auth.forgotPassword(email);
 // Prod : l’utilisateur ouvre le lien reçu par email

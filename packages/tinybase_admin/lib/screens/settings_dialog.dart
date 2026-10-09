@@ -17,7 +17,7 @@ dependencies:
       ref: main
 ''';
 
-/// Réglages : inscriptions, session, providers OAuth (style Supabase), codegen.
+/// Réglages : inscriptions, session, SMTP, providers OAuth, codegen.
 class SettingsScreen extends StatefulWidget {
   final ApiClient client;
   const SettingsScreen({super.key, required this.client});
@@ -35,6 +35,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool _registrationsOpen = true;
   final _sessionDaysController = TextEditingController();
+
+  final _smtpHost = TextEditingController();
+  final _smtpPort = TextEditingController();
+  final _smtpUser = TextEditingController();
+  final _smtpPassword = TextEditingController();
+  final _smtpFrom = TextEditingController();
+  bool _smtpSsl = false;
 
   final _discordId = TextEditingController();
   final _discordSecret = TextEditingController();
@@ -59,6 +66,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _sessionDaysController.dispose();
     for (final c in [
+      _smtpHost,
+      _smtpPort,
+      _smtpUser,
+      _smtpPassword,
+      _smtpFrom,
       _discordId,
       _discordSecret,
       _googleId,
@@ -75,6 +87,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
+  void _applySmtpFields(SmtpInfo smtp) {
+    _smtpHost.text = smtp.fromEnv ? '' : (smtp.host ?? '');
+    _smtpPort.text = '${smtp.port}';
+    _smtpUser.text = smtp.fromEnv ? '' : (smtp.user ?? '');
+    _smtpFrom.text = smtp.fromEnv ? '' : (smtp.from ?? '');
+    _smtpSsl = smtp.ssl;
+    _smtpPassword.clear();
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -86,6 +107,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _settings = settings;
         _registrationsOpen = settings.registrationsOpen;
         _sessionDaysController.text = '${settings.refreshTokenTtlDays}';
+        _applySmtpFields(settings.smtp);
         _discordId.text = settings.discord.clientId ?? '';
         _googleId.text = settings.google.clientId ?? '';
         _microsoftId.text = settings.microsoft.clientId ?? '';
@@ -137,6 +159,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SnackBar(content: Text('Durée de session enregistrée')),
         );
       }
+    } on ApiException catch (e) {
+      setState(() {
+        _error = e.message;
+        _saving = false;
+      });
+    }
+  }
+
+  Future<void> _saveSmtp() async {
+    final port = int.tryParse(_smtpPort.text.trim());
+    if (port == null) {
+      setState(() => _error = 'Port SMTP invalide');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final settings = await widget.client.updateSettings(
+        smtpHost: _smtpHost.text.trim(),
+        smtpPort: port,
+        smtpUser: _smtpUser.text.trim(),
+        smtpFrom: _smtpFrom.text.trim(),
+        smtpSsl: _smtpSsl,
+        smtpPassword: _smtpPassword.text.trim().isEmpty ? null : _smtpPassword.text.trim(),
+      );
+      setState(() {
+        _settings = settings;
+        _applySmtpFields(settings.smtp);
+        _saving = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('SMTP enregistré')),
+        );
+      }
+    } on ApiException catch (e) {
+      setState(() {
+        _error = e.message;
+        _saving = false;
+      });
+    }
+  }
+
+  Future<void> _disableSmtp() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final settings = await widget.client.updateSettings(disableSmtp: true);
+      setState(() {
+        _settings = settings;
+        _applySmtpFields(settings.smtp);
+        _saving = false;
+      });
     } on ApiException catch (e) {
       setState(() {
         _error = e.message;
@@ -325,6 +404,89 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           FilledButton(
                             onPressed: _saving ? null : _saveSession,
                             child: const Text('Enregistrer'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    _label('Email / SMTP'),
+                    const SizedBox(height: 8),
+                    _panel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Reset password par email (Play Store / App Store).',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                              StatusPill(
+                                label: _settings!.smtp.configured
+                                    ? (_settings!.smtp.fromEnv ? 'env' : 'activé')
+                                    : 'désactivé',
+                                color: _settings!.smtp.configured
+                                    ? AppColors.accent
+                                    : AppColors.textFaint,
+                              ),
+                            ],
+                          ),
+                          if (_settings!.smtp.fromEnv) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Config active via variables d’env `SMTP_*` (legacy). '
+                              'Enregistre ici pour passer sur l’admin (recommandé).',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColors.textFaint,
+                                  ),
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          Text(
+                            'Il faut aussi `PUBLIC_BASE_URL` sur Railway '
+                            '(liens absolus dans l’email).',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: AppColors.textFaint,
+                                ),
+                          ),
+                          const SizedBox(height: 12),
+                          _field(_smtpHost, 'Host', hint: 'smtp.example.com'),
+                          _field(_smtpPort, 'Port', hint: '587'),
+                          _field(_smtpUser, 'User (optionnel)'),
+                          _field(
+                            _smtpPassword,
+                            'Password',
+                            obscure: true,
+                            hint: _settings!.smtp.passwordSet && !_settings!.smtp.fromEnv
+                                ? '•••••• (vide = ne pas changer)'
+                                : null,
+                          ),
+                          _field(_smtpFrom, 'From', hint: 'noreply@example.com'),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('SSL / TLS direct', style: TextStyle(color: AppColors.text)),
+                            subtitle: const Text('Cocher pour le port 465. Laisser off pour STARTTLS (587).'),
+                            value: _smtpSsl,
+                            onChanged: (v) => setState(() => _smtpSsl = v),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              FilledButton(
+                                onPressed: _saving ? null : _saveSmtp,
+                                child: const Text('Enregistrer'),
+                              ),
+                              if (_settings!.smtp.configured && !_settings!.smtp.fromEnv) ...[
+                                const SizedBox(width: 8),
+                                OutlinedButton(
+                                  onPressed: _saving ? null : _disableSmtp,
+                                  style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+                                  child: const Text('Désactiver'),
+                                ),
+                              ],
+                            ],
                           ),
                         ],
                       ),
