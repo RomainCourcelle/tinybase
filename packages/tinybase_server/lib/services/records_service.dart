@@ -30,6 +30,12 @@ class RecordsService {
   final FilesService files;
   final RealtimeHub? realtime;
 
+  /// Suppression complète d'un compte auth (sessions, records, ligne user).
+  /// Branché depuis [buildApp] vers [AuthService.deleteAccount] pour que
+  /// `DELETE /api/collections/users/records/:id` fasse le même ménage que
+  /// `DELETE /api/auth/me`.
+  Future<void> Function(String userId)? deleteAuthAccount;
+
   RecordsService(
     this.db,
     this.collections, {
@@ -295,8 +301,12 @@ class RecordsService {
 
     if (!rules.forRecordAction(col.deleteRule, auth, existing)) throw ForbiddenException();
 
-    await db.execute('DELETE FROM "$collectionName" WHERE id = ?', [id]);
-    await files.deleteRecordFiles(collectionName, id);
+    if (col.type == CollectionType.auth && deleteAuthAccount != null) {
+      await deleteAuthAccount!(id);
+    } else {
+      await db.execute('DELETE FROM "$collectionName" WHERE id = ?', [id]);
+      await files.deleteRecordFiles(collectionName, id);
+    }
 
     // Inclure le record public (id/owner) pour filtrer les abonnés SSE.
     realtime?.emit(RecordChangeEvent(
@@ -305,6 +315,39 @@ class RecordsService {
       recordId: id,
       record: _publicRecord(col, existing),
     ));
+  }
+
+  /// Records des collections `base` dont `owner` est [userId], plus leurs fichiers.
+  Future<void> deleteOwnedBy(String userId) async {
+    final cols = await collections.list();
+    final targets = <({String collection, String id})>[];
+
+    await db.writeTransaction((tx) async {
+      for (final col in cols) {
+        if (col.type != CollectionType.base) continue;
+        assertValidIdentifier(col.name, kind: 'collection');
+        final rows = await tx.getAll(
+          'SELECT id FROM "${col.name}" WHERE owner = ?',
+          [userId],
+        );
+        for (final row in rows) {
+          final recordId = row['id'] as String?;
+          if (recordId == null) continue;
+          targets.add((collection: col.name, id: recordId));
+          await tx.execute('DELETE FROM "${col.name}" WHERE id = ?', [recordId]);
+        }
+      }
+    });
+
+    for (final target in targets) {
+      await files.deleteRecordFiles(target.collection, target.id);
+      realtime?.emit(RecordChangeEvent(
+        collection: target.collection,
+        action: 'delete',
+        recordId: target.id,
+        record: {'id': target.id, 'owner': userId},
+      ));
+    }
   }
 
   /// Sert le fichier d'un champ file (ACL = viewRule).

@@ -206,6 +206,8 @@ class TinyBaseAuth {
   }
 
   /// Deletes the authenticated account (`DELETE /api/auth/me`) then clears local session.
+  ///
+  /// The server also removes records owned by this user and their files.
   Future<void> deleteAccount() async {
     await _client.requestJson('DELETE', '/api/auth/me');
     _user = null;

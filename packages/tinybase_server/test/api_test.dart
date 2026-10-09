@@ -1183,6 +1183,120 @@ void main() {
       expect(loginStatus, 400);
     });
 
+    test('DELETE /me efface les records owner et leurs fichiers, pas ceux des autres', () async {
+      final (regStatus, regBody) = await client.post('/api/auth/register', json: {
+        'email': 'wipe@example.com',
+        'password': 'password1',
+      });
+      expect(regStatus, 201);
+      final token = regBody['accessToken'] as String;
+      final userId = regBody['user']['id'] as String;
+
+      final (bobStatus, bobBody) = await client.post('/api/auth/login', json: {
+        'email': 'bob@example.com',
+        'password': 'password1',
+      });
+      expect(bobStatus, 200);
+      final bobToken = bobBody['accessToken'] as String;
+
+      final (noteStatus, noteBody) = await client.post(
+        '/api/collections/notes/records',
+        json: {'title': 'A effacer'},
+        token: token,
+      );
+      expect(noteStatus, 201);
+      final noteId = noteBody['id'] as String;
+
+      final (bobNoteStatus, bobNoteBody) = await client.post(
+        '/api/collections/notes/records',
+        json: {'title': 'A garder'},
+        token: bobToken,
+      );
+      expect(bobNoteStatus, 201);
+      final bobNoteId = bobNoteBody['id'] as String;
+
+      final (fileStatus, fileBody) = await client.postMultipart(
+        '/api/collections/docs/records',
+        fields: {'data': jsonEncode({'title': 'Piece jointe'})},
+        files: {
+          'attachment': (filename: 'note.txt', bytes: utf8.encode('secret'), contentType: 'text/plain'),
+        },
+        token: token,
+      );
+      expect(fileStatus, 201);
+      final fileId = fileBody['id'] as String;
+
+      final (deleteStatus, _) = await client.delete('/api/auth/me', token: token);
+      expect(deleteStatus, 200);
+
+      final (goneNote, _) = await client.get(
+        '/api/collections/notes/records/$noteId',
+        token: _sharedAdminToken,
+      );
+      expect(goneNote, 404);
+
+      final (keptNote, keptBody) = await client.get(
+        '/api/collections/notes/records/$bobNoteId',
+        token: _sharedAdminToken,
+      );
+      expect(keptNote, 200);
+      expect(keptBody['id'], bobNoteId);
+
+      final (goneFile, _, __) = await client.getBytes(
+        '/api/collections/docs/records/$fileId/files/attachment',
+        token: _sharedAdminToken,
+      );
+      expect(goneFile, 404);
+
+      final (goneRecord, _) = await client.get(
+        '/api/collections/docs/records/$fileId',
+        token: _sharedAdminToken,
+      );
+      expect(goneRecord, 404);
+
+      final (userGone, _) = await client.get(
+        '/api/collections/users/records/$userId',
+        token: _sharedAdminToken,
+      );
+      expect(userGone, 404);
+    });
+
+    test('suppression admin d\'un user efface aussi ses records', () async {
+      final (regStatus, regBody) = await client.post('/api/auth/register', json: {
+        'email': 'adminwipe@example.com',
+        'password': 'password1',
+      });
+      expect(regStatus, 201);
+      final token = regBody['accessToken'] as String;
+      final userId = regBody['user']['id'] as String;
+
+      final (noteStatus, noteBody) = await client.post(
+        '/api/collections/notes/records',
+        json: {'title': 'Via admin'},
+        token: token,
+      );
+      expect(noteStatus, 201);
+      final noteId = noteBody['id'] as String;
+
+      final (deleteStatus, _) = await client.delete(
+        '/api/collections/users/records/$userId',
+        token: _sharedAdminToken,
+      );
+      expect(deleteStatus, 200);
+
+      final (goneNote, _) = await client.get(
+        '/api/collections/notes/records/$noteId',
+        token: _sharedAdminToken,
+      );
+      expect(goneNote, 404);
+
+      final (loginStatus, _) = await client.post('/api/auth/login', json: {
+        'email': 'adminwipe@example.com',
+        'password': 'password1',
+      });
+      expect(loginStatus, 400);
+    });
+
     test('forgot-password ne révèle pas si l\'email existe', () async {
       final (status, body) = await client.post('/api/auth/forgot-password', json: {
         'email': 'inconnu@example.com',

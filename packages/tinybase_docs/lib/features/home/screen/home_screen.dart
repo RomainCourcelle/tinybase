@@ -117,7 +117,7 @@ class HomeScreen extends StatelessWidget {
                 _ActionRow(
                   icon: Icons.rocket_launch_outlined,
                   title: 'Getting started',
-                  subtitle: 'Deploy → client → auth → CRUD → files → SSE',
+                  subtitle: 'Deploy → client → auth → compte → CRUD → files → SSE',
                   onTap: () => context.go('/getting-started'),
                 ),
                 const SizedBox(height: 10),

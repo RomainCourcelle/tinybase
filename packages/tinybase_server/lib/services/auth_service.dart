@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/config.dart';
 import 'collections_service.dart';
+import 'files_service.dart';
 import 'settings_service.dart';
 
 const _uuid = Uuid();
@@ -56,8 +57,18 @@ class AuthService {
   final SqliteDatabase db;
   final SettingsService settings;
   final CollectionsService collections;
+  final FilesService files;
 
-  AuthService(this.db, this.settings, this.collections);
+  /// Records `owner = userId` dans les collections base. Branché depuis
+  /// [buildApp] vers [RecordsService.deleteOwnedBy].
+  Future<void> Function(String userId)? purgeOwnedRecords;
+
+  AuthService(
+    this.db,
+    this.settings,
+    this.collections, {
+    FilesService? files,
+  }) : files = files ?? FilesService();
 
   Future<AuthSession> register(
     String email,
@@ -246,13 +257,19 @@ class AuthService {
     }
   }
 
-  /// Suppression de compte (Play Store) : user + sessions + reset tokens.
+  /// Suppression de compte (Play Store / RGPD) : records dont il est
+  /// `owner` (et leurs fichiers), sessions, tokens de reset, puis la ligne user.
   Future<void> deleteAccount(String userId) async {
     final row = await db.getOptional('SELECT id FROM users WHERE id = ?', [userId]);
     if (row == null) throw AuthException('Utilisateur introuvable');
-    await db.execute('DELETE FROM _refresh_tokens WHERE user_id = ?', [userId]);
-    await db.execute('DELETE FROM _password_resets WHERE user_id = ?', [userId]);
-    await db.execute('DELETE FROM users WHERE id = ?', [userId]);
+    final purge = purgeOwnedRecords;
+    if (purge != null) await purge(userId);
+    await db.writeTransaction((tx) async {
+      await tx.execute('DELETE FROM _refresh_tokens WHERE user_id = ?', [userId]);
+      await tx.execute('DELETE FROM _password_resets WHERE user_id = ?', [userId]);
+      await tx.execute('DELETE FROM users WHERE id = ?', [userId]);
+    });
+    await files.deleteRecordFiles('users', userId);
   }
 
   /// Demande de reset — réponse toujours ok (pas d'énumération d'emails).

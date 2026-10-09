@@ -6,6 +6,7 @@
 - JSON and multipart requests time out (30s by default).
 - `logout()` revokes the refresh token on the server.
 - `deleteAccount()`, `forgotPassword()`, `resetPassword()`.
+- Account deletion also removes records owned by the user and their files.
 
 ## 0.3.2
 

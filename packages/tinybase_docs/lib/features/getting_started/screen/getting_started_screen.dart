@@ -33,7 +33,9 @@ APP_NAME             # ex. Cerebrum Base
 FILES_DIR            # optionnel (défaut : à côté de la DB)
 MAX_FILE_SIZE        # optionnel (défaut 10 Mo)
 CORS_ALLOW_ORIGIN    # si l’admin/docs est sur un autre domaine
-# JWT_SECRET         # recommandé si plusieurs replicas''',
+# JWT_SECRET         # recommandé si plusieurs replicas
+# AUTH_RATE_LIMIT_MAX            # défaut 20 / IP / minute
+# RETURN_PASSWORD_RESET_TOKEN    # true seulement en staging (pas d’email)''',
             ),
             DocStep(
               label: 'Lancer en local',
@@ -62,13 +64,16 @@ dart run bin/server.dart''',
             DocStep(
               label: 'Créer le client et restaurer la session',
               where: 'Dans `main()`, avant `runApp`',
+              detail:
+                  'Sur mobile les tokens vont dans le Keystore / Keychain. '
+                  'Une erreur réseau au `restore()` ne déconnecte pas.',
               code: r'''Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final client = TinyBaseClient(
     baseUrl: 'https://ton-api.example.com', // URL de ton serveur TinyBase
   );
-  await client.auth.restore(); // recharge le JWT si déjà connecté
+  await client.auth.restore(); // hors ligne : session locale conservée
 
   runApp(MyApp(client: client)); // passe le client à ton arbre de widgets
 }''',
@@ -110,7 +115,9 @@ await auth.register(
 
 await auth.login(email: email, password: password);
 
-await auth.updateMe({'display_name': 'Ada Lovelace'});''',
+await auth.updateMe({'display_name': 'Ada Lovelace'});
+
+await auth.logout(); // révoque le refresh côté serveur''',
                   ),
                 ]
               : const [
@@ -145,13 +152,45 @@ await auth.register(
 
 await auth.login(email: email, password: password);
 
-await auth.updateMe({'display_name': 'Ada Lovelace'});''',
+await auth.updateMe({'display_name': 'Ada Lovelace'});
+
+await auth.logout(); // révoque le refresh côté serveur''',
                   ),
                 ],
         ),
+        const DocChapterData(
+          id: 'account',
+          number: '4',
+          title: 'Compte',
+          intro:
+              'Suppression de compte (obligatoire Play Store) et reset de mot de passe. '
+              'Ces appels sont sur `client.auth`, pas dans le codegen.',
+          steps: [
+            DocStep(
+              label: 'Supprimer le compte',
+              where: 'Écran réglages, après confirmation',
+              detail:
+                  'Efface l’utilisateur, ses sessions, les records dont il est `owner`, et leurs fichiers. '
+                  'Les records des autres comptes restent.',
+              code: r'''await client.auth.deleteAccount();''',
+            ),
+            DocStep(
+              label: 'Mot de passe oublié',
+              where: 'Écran login',
+              detail:
+                  'La réponse est toujours ok (on ne révèle pas si l’email existe). '
+                  'En 0.4 il n’y a pas d’email : le token n’est renvoyé que si '
+                  '`RETURN_PASSWORD_RESET_TOKEN=true` (staging).',
+              code: r'''final token = await client.auth.forgotPassword(email);
+if (token != null) {
+  await client.auth.resetPassword(token: token, password: newPassword);
+}''',
+            ),
+          ],
+        ),
         DocChapterData(
           id: 'crud',
-          number: '4',
+          number: '5',
           title: 'CRUD + codegen',
           intro:
               'Crée une collection dans l’admin, génère le code, utilise le repository.',
@@ -170,6 +209,9 @@ await auth.updateMe({'display_name': 'Ada Lovelace'});''',
                   DocStep(
                     label: 'Lister / créer',
                     where: 'Dans un service ou un écran',
+                    detail:
+                        'Un filtre `||` ne contourne pas une règle owner : '
+                        'le serveur parenthèse la règle et le filtre.',
                     code: r'''final notes = NotesRepository(client);
 
 final page = await notes.list();
@@ -190,6 +232,9 @@ await notes.create({'title': 'Hello'});''',
                   DocStep(
                     label: 'Lister / créer',
                     where: 'Via `ref` + le client TinyBase',
+                    detail:
+                        'Un filtre `||` ne contourne pas une règle owner : '
+                        'le serveur parenthèse la règle et le filtre.',
                     code: r'''final notes = NotesRepository(
   ref.read(tinyBaseClientProvider),
 );
@@ -201,7 +246,7 @@ await notes.create({'title': 'Hello'});''',
         ),
         const DocChapterData(
           id: 'files',
-          number: '5',
+          number: '6',
           title: 'Fichiers',
           intro:
               'Champ type Fichier (options max Mo / MIME, wildcards `image/*`). Upload multipart.',
@@ -236,7 +281,7 @@ await notes.create({'title': 'Hello'});''',
         ),
         const DocChapterData(
           id: 'sse',
-          number: '6',
+          number: '7',
           title: 'Realtime SSE',
           intro:
               'Abonne-toi aux changements. Depuis 0.3.1 : reconnect auto avec backoff.',
@@ -257,7 +302,7 @@ await notes.create({'title': 'Hello'});''',
         ),
         const DocChapterData(
           id: 'oauth',
-          number: '7',
+          number: '8',
           title: 'OAuth (optionnel)',
           intro:
               'Discord / Microsoft via navigateur ; Google / Apple via idToken natif.',

@@ -29,7 +29,6 @@ import 'routes/users_admin_routes.dart';
 Handler buildApp() {
   final settingsService = SettingsService(Database.instance);
   final collectionsService = CollectionsService(Database.instance);
-  final authService = AuthService(Database.instance, settingsService, collectionsService);
   final adminService = AdminService(Database.instance);
   final realtimeHub = RealtimeHub();
   final filesService = FilesService();
@@ -39,6 +38,14 @@ Handler buildApp() {
     files: filesService,
     realtime: realtimeHub,
   );
+  final authService = AuthService(
+    Database.instance,
+    settingsService,
+    collectionsService,
+    files: filesService,
+  );
+  authService.purgeOwnedRecords = recordsService.deleteOwnedBy;
+  recordsService.deleteAuthAccount = authService.deleteAccount;
 
   final root = Router();
 

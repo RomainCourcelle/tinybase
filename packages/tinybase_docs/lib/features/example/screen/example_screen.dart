@@ -45,7 +45,8 @@ attachment  file      max 5 Mo, mime:image/*, application/pdf''',
               label: 'Règles d’accès (rappel)',
               where: 'Selon ton setup admin',
               detail:
-                  'Les users authentifiés doivent pouvoir list/create/update leurs notes.',
+                  'Les users authentifiés doivent pouvoir list/create/update leurs notes. '
+                  'Le serveur pose `owner`. Supprimer le compte efface ces notes et leurs fichiers.',
             ),
           ],
         ),
@@ -319,7 +320,7 @@ Future<void> main() async {
   final client = TinyBaseClient(
     baseUrl: 'https://ton-api.example.com',
   );
-  await client.auth.restore();
+  await client.auth.restore(); // hors ligne : session conservée
 
   runApp(
     MultiProvider(
@@ -344,7 +345,7 @@ Future<void> main() async {
   final client = TinyBaseClient(
     baseUrl: 'https://ton-api.example.com',
   );
-  await client.auth.restore();
+  await client.auth.restore(); // hors ligne : session conservée
 
   runApp(
     ProviderScope(
@@ -468,7 +469,7 @@ import 'generated/notes_repository.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final client = TinyBaseClient(baseUrl: 'https://ton-api.example.com');
-  await client.auth.restore();
+  await client.auth.restore(); // hors ligne : session conservée
   runApp(
     MultiProvider(
       providers: [
@@ -577,7 +578,7 @@ import 'generated/notes_repository.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final client = TinyBaseClient(baseUrl: 'https://ton-api.example.com');
-  await client.auth.restore();
+  await client.auth.restore(); // hors ligne : session conservée
   runApp(
     ProviderScope(
       overrides: [tinyBaseClientProvider.overrideWithValue(client)],

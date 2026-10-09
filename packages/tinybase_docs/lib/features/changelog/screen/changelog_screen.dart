@@ -76,10 +76,11 @@ const _entries = <_ChangeEntry>[
     version: '0.4.0',
     date: '2026-10',
     bullets: [
-      'Auth : logout, suppression de compte, mot de passe oublié / reset.',
-      'Refresh tokens rotatifs et révocables + rate-limit login/register/forgot/reset.',
-      'Listes : le filtre OR ne contourne plus la règle owner (WHERE parenthésé).',
-      'Client : SecureTokenStore, restore hors-ligne, lock de refresh, timeouts.',
+      'Suppression de compte (`DELETE /api/auth/me`) : user, sessions, records `owner` et leurs fichiers.',
+      'Logout serveur, mot de passe oublié / reset (pas d’email : token seulement si `RETURN_PASSWORD_RESET_TOKEN=true`).',
+      'Refresh tokens rotatifs et révocables. Rate-limit login / register / forgot / reset.',
+      'Un filtre `||` ne contourne plus une règle owner (WHERE parenthésé).',
+      'Client : Keystore / Keychain par défaut sur mobile, `restore()` garde la session hors ligne.',
       'Admin records : colonne Actions en premier, scrollbars visibles.',
     ],
   ),
@@ -87,7 +88,7 @@ const _entries = <_ChangeEntry>[
     version: '0.3.2',
     date: '2026-10',
     bullets: [
-      'Docs hébergées : lien `documentation` pub.dev → site Railway.',
+      'Docs hébergées : lien `documentation` pub.dev vers ce site.',
     ],
   ),
   _ChangeEntry(

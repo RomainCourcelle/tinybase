@@ -26,7 +26,7 @@
 - [x] Hardening 0.3.x : SSE delete ACL + ping/reconnect, MIME wildcards, download Content-Type, multipart cap, CORS env, 500 génériques, OAuth fragment tokens, validation email/url/select
 
 ## 0.4 (fait)
-- [x] Logout (`POST /api/auth/logout`) et suppression de compte (`DELETE /api/auth/me`)
+- [x] Logout (`POST /api/auth/logout`) et suppression de compte (`DELETE /api/auth/me`, records `owner` + fichiers)
 - [x] Mot de passe oublié / reset (token renvoyé seulement si `RETURN_PASSWORD_RESET_TOKEN`)
 - [x] Rotation et révocation des refresh tokens (`_refresh_tokens`, `_password_resets`)
 - [x] Rate-limit login / register / forgot / reset
