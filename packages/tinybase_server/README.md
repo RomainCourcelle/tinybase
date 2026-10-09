@@ -104,6 +104,6 @@ Voir le Dockerfile à la racine.
 ## Limites connues (voir TODO.md)
 
 - Fichiers : stockage local seulement (S3 plus tard)
-- Parseur de filtre sans parenthèses
+- Parseur de filtre : pas de parenthèses dans le langage (`&&` / `||` de gauche à droite). Le WHERE (règle + filtre) est parenthésé depuis 0.4.
 - Un seul compte admin
 - `target` Discord : deep-link custom ou `localhost` uniquement

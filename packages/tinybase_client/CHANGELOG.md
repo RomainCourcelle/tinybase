@@ -1,3 +1,12 @@
+## 0.4.0
+
+- `SecureTokenStore` (Keystore / Keychain) as the default on mobile.
+- `restore()` keeps the local session on network errors and timeouts.
+- Single in-flight refresh (lock) so concurrent 401s do not rotate twice.
+- JSON and multipart requests time out (30s by default).
+- `logout()` revokes the refresh token on the server.
+- `deleteAccount()`, `forgotPassword()`, `resetPassword()`.
+
 ## 0.3.2
 
 - Point `documentation` to the hosted Getting Started site.

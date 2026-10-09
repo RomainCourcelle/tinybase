@@ -73,6 +73,17 @@ class _ChangeEntry {
 
 const _entries = <_ChangeEntry>[
   _ChangeEntry(
+    version: '0.4.0',
+    date: '2026-10',
+    bullets: [
+      'Auth : logout, suppression de compte, mot de passe oublié / reset.',
+      'Refresh tokens rotatifs et révocables + rate-limit login/register/forgot/reset.',
+      'Listes : le filtre OR ne contourne plus la règle owner (WHERE parenthésé).',
+      'Client : SecureTokenStore, restore hors-ligne, lock de refresh, timeouts.',
+      'Admin records : colonne Actions en premier, scrollbars visibles.',
+    ],
+  ),
+  _ChangeEntry(
     version: '0.3.2',
     date: '2026-10',
     bullets: [

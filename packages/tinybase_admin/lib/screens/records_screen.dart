@@ -7,11 +7,27 @@ import '../theme/app_colors.dart';
 import '../widgets/ui_bits.dart';
 import 'record_form_dialog.dart';
 
-class RecordsScreen extends StatelessWidget {
+class RecordsScreen extends StatefulWidget {
   final CollectionDefinition collection;
   const RecordsScreen({super.key, required this.collection});
 
+  @override
+  State<RecordsScreen> createState() => _RecordsScreenState();
+}
+
+class _RecordsScreenState extends State<RecordsScreen> {
+  final _horizontalController = ScrollController();
+  final _verticalController = ScrollController();
+
+  CollectionDefinition get collection => widget.collection;
   bool get _isAuthCollection => collection.type == CollectionType.auth;
+
+  @override
+  void dispose() {
+    _horizontalController.dispose();
+    _verticalController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -89,73 +105,91 @@ class RecordsScreen extends StatelessWidget {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
+                      child: Scrollbar(
+                        controller: _horizontalController,
+                        thumbVisibility: true,
+                        scrollbarOrientation: ScrollbarOrientation.bottom,
+                        notificationPredicate: (n) => n.metrics.axis == Axis.horizontal,
                         child: SingleChildScrollView(
-                          child: DataTable(
-                            columns: [
-                              ...columns.map((c) => DataColumn(label: Text(c))),
-                              const DataColumn(label: Text('')),
-                            ],
-                            rows: provider.items.map((record) {
-                              return DataRow(
-                                cells: [
-                                  ...columns.map(
-                                    (c) => DataCell(
-                                      ConstrainedBox(
-                                        constraints: const BoxConstraints(maxWidth: 220),
-                                        child: Text(
-                                          _displayValue(record[c]),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  DataCell(
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (!_isAuthCollection || collection.fields.isNotEmpty)
-                                          IconButton(
-                                            tooltip: _isAuthCollection ? 'Éditer le profil' : 'Éditer',
-                                            icon: const Icon(Icons.edit_outlined, size: 18),
-                                            onPressed: () => showDialog(
-                                              context: context,
-                                              builder: (_) => ChangeNotifierProvider.value(
-                                                value: provider,
-                                                child: RecordFormDialog(
-                                                  collection: collection,
-                                                  existing: record,
+                          controller: _horizontalController,
+                          scrollDirection: Axis.horizontal,
+                          child: Scrollbar(
+                            controller: _verticalController,
+                            thumbVisibility: true,
+                            child: SingleChildScrollView(
+                              controller: _verticalController,
+                              child: DataTable(
+                                columns: [
+                                  // Actions en premier : toujours visibles sans scroller à droite.
+                                  const DataColumn(label: Text('Actions')),
+                                  ...columns.map((c) => DataColumn(label: Text(c))),
+                                ],
+                                rows: provider.items.map((record) {
+                                  return DataRow(
+                                    cells: [
+                                      DataCell(
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (!_isAuthCollection || collection.fields.isNotEmpty)
+                                              IconButton(
+                                                tooltip: _isAuthCollection ? 'Éditer le profil' : 'Éditer',
+                                                icon: const Icon(Icons.edit_outlined, size: 18),
+                                                onPressed: () => showDialog(
+                                                  context: context,
+                                                  builder: (_) => ChangeNotifierProvider.value(
+                                                    value: provider,
+                                                    child: RecordFormDialog(
+                                                      collection: collection,
+                                                      existing: record,
+                                                    ),
+                                                  ),
                                                 ),
                                               ),
+                                            if (_isAuthCollection)
+                                              Builder(builder: (context) {
+                                                final isDisabled = _isRecordDisabled(record);
+                                                return IconButton(
+                                                  tooltip: isDisabled ? 'Réactiver' : 'Bannir',
+                                                  icon: Icon(
+                                                    isDisabled
+                                                        ? Icons.lock_open_outlined
+                                                        : Icons.block_outlined,
+                                                    size: 18,
+                                                  ),
+                                                  onPressed: () => _confirmToggleBan(
+                                                    context,
+                                                    provider,
+                                                    record,
+                                                    isDisabled,
+                                                  ),
+                                                );
+                                              }),
+                                            IconButton(
+                                              tooltip: 'Supprimer',
+                                              icon: const Icon(Icons.delete_outline, size: 18),
+                                              onPressed: () =>
+                                                  _confirmDelete(context, provider, record),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      ...columns.map(
+                                        (c) => DataCell(
+                                          ConstrainedBox(
+                                            constraints: const BoxConstraints(maxWidth: 220),
+                                            child: Text(
+                                              _displayValue(record[c]),
+                                              overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
-                                        if (_isAuthCollection)
-                                          Builder(builder: (context) {
-                                            final isDisabled = _isRecordDisabled(record);
-                                            return IconButton(
-                                              tooltip: isDisabled ? 'Réactiver' : 'Bannir',
-                                              icon: Icon(
-                                                isDisabled
-                                                    ? Icons.lock_open_outlined
-                                                    : Icons.block_outlined,
-                                                size: 18,
-                                              ),
-                                              onPressed: () =>
-                                                  _confirmToggleBan(context, provider, record, isDisabled),
-                                            );
-                                          }),
-                                        IconButton(
-                                          tooltip: 'Supprimer',
-                                          icon: const Icon(Icons.delete_outline, size: 18),
-                                          onPressed: () => _confirmDelete(context, provider, record),
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              );
-                            }).toList(),
+                                      ),
+                                    ],
+                                  );
+                                }).toList(),
+                              ),
+                            ),
                           ),
                         ),
                       ),

@@ -7,4 +7,9 @@ export 'src/collection.dart' show TinyBaseCollection, RecordPage, DownloadedFile
 export 'src/file_upload.dart' show FileUpload;
 export 'src/realtime.dart' show RecordChange;
 export 'src/token_store.dart'
-    show TokenStore, SharedPreferencesTokenStore, InMemoryTokenStore;
+    show
+        TokenStore,
+        SharedPreferencesTokenStore,
+        SecureTokenStore,
+        InMemoryTokenStore,
+        createDefaultTokenStore;

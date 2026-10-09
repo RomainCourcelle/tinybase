@@ -63,9 +63,11 @@ class RecordsService {
     final allowedColumns = {...col.autoFields, ...col.fields.map((f) => f.name)};
     final (filterSql, filterParams) = FilterParser.parse(filter, allowedColumns);
 
+    // Parentheses around each clause: AND binds tighter than OR in SQL, so
+    // `"owner" = ? AND a = 1 OR b = 2` would leak other users' rows.
     final whereClauses = <String>[
-      if (decision.sqlPredicate != null) decision.sqlPredicate!,
-      if (filterSql.isNotEmpty) filterSql,
+      if (decision.sqlPredicate != null) '(${decision.sqlPredicate})',
+      if (filterSql.isNotEmpty) '($filterSql)',
     ];
     final whereSql = whereClauses.isEmpty ? '' : 'WHERE ${whereClauses.join(' AND ')}';
     final params = [...decision.params, ...filterParams];

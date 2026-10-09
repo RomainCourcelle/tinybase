@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Persistance of access/refresh tokens (and optional serialized user JSON).
@@ -60,6 +62,8 @@ class InMemoryTokenStore implements TokenStore {
 }
 
 /// Flutter [TokenStore] backed by [SharedPreferences] (localStorage on web).
+///
+/// Prefer [SecureTokenStore] on Android/iOS (Keystore / Keychain).
 class SharedPreferencesTokenStore implements TokenStore {
   /// Creates a SharedPreferences-backed store.
   SharedPreferencesTokenStore();
@@ -102,4 +106,52 @@ class SharedPreferencesTokenStore implements TokenStore {
     await p.remove(_kRefresh);
     await p.remove(_kUser);
   }
+}
+
+/// [TokenStore] using platform secure storage (Android Keystore / iOS Keychain).
+///
+/// Recommended default for mobile production apps.
+class SecureTokenStore implements TokenStore {
+  /// Creates a secure store.
+  SecureTokenStore({FlutterSecureStorage? storage})
+      : _storage = storage ?? const FlutterSecureStorage();
+
+  static const _kAccess = 'tinybase_client.access_token';
+  static const _kRefresh = 'tinybase_client.refresh_token';
+  static const _kUser = 'tinybase_client.user_json';
+
+  final FlutterSecureStorage _storage;
+
+  @override
+  Future<String?> readAccessToken() => _storage.read(key: _kAccess);
+
+  @override
+  Future<String?> readRefreshToken() => _storage.read(key: _kRefresh);
+
+  @override
+  Future<String?> readUserJson() => _storage.read(key: _kUser);
+
+  @override
+  Future<void> writeSession({
+    required String accessToken,
+    required String refreshToken,
+    required String userJson,
+  }) async {
+    await _storage.write(key: _kAccess, value: accessToken);
+    await _storage.write(key: _kRefresh, value: refreshToken);
+    await _storage.write(key: _kUser, value: userJson);
+  }
+
+  @override
+  Future<void> clear() async {
+    await _storage.delete(key: _kAccess);
+    await _storage.delete(key: _kRefresh);
+    await _storage.delete(key: _kUser);
+  }
+}
+
+/// Default store: [SecureTokenStore] on mobile, [SharedPreferencesTokenStore] on web.
+TokenStore createDefaultTokenStore() {
+  if (kIsWeb) return SharedPreferencesTokenStore();
+  return SecureTokenStore();
 }

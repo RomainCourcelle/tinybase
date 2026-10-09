@@ -16,6 +16,7 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import 'package:tinybase/api/app.dart';
+import 'package:tinybase/api/middleware/rate_limit_middleware.dart';
 import 'package:tinybase/core/config.dart';
 import 'package:tinybase/db/database.dart';
 
@@ -190,10 +191,19 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('tinybase_test_');
     // Secret JWT figé pour les tests (évite d'écrire `.jwt_secret` et
     // garantit un secret déterministe).
-    await Config.init(jwtSecretOverride: 'test-jwt-secret-16c');
+    await Config.init(
+      jwtSecretOverride: 'test-jwt-secret-16c',
+      returnPasswordResetToken: true,
+    );
     await Database.init(path: '${tempDir.path}/test.db');
     client = _TestClient(buildApp());
   });
+
+  // Le rate-limit auth est global au process (20 / IP / bucket). Sans reset,
+  // la batterie séquentielle dépasse le plafond et les logins suivants
+  // répondent 429.
+  setUp(() => authRateLimiter.clear());
+  tearDown(() => authRateLimiter.clear());
 
   tearDownAll(() async {
     // Sur Windows, un fichier ouvert par sqlite_async (isolate séparé) reste
@@ -1055,6 +1065,248 @@ void main() {
       expect(events, isNotEmpty);
       expect(events.first['action'], 'create');
       expect(events.first['recordId'], body['id']);
+    });
+  });
+
+  group('9. Auth 0.4 — session, reset, rate-limit, filtre OR', () {
+    test('refresh rotation invalide l\'ancien token', () async {
+      final (regStatus, regBody) = await client.post('/api/auth/register', json: {
+        'email': 'rotate@example.com',
+        'password': 'password1',
+      });
+      expect(regStatus, 201);
+      final firstRefresh = regBody['refreshToken'] as String;
+
+      final (refreshStatus, refreshBody) = await client.post(
+        '/api/auth/refresh',
+        json: {'refreshToken': firstRefresh},
+      );
+      expect(refreshStatus, 200);
+      final secondRefresh = refreshBody['refreshToken'] as String;
+      expect(secondRefresh, isNot(firstRefresh));
+      expect(refreshBody['accessToken'], isNotEmpty);
+
+      final (reuseStatus, reuseBody) = await client.post(
+        '/api/auth/refresh',
+        json: {'refreshToken': firstRefresh},
+      );
+      expect(reuseStatus, 400);
+      expect(reuseBody['error'], contains('révoqué'));
+
+      final (againStatus, _) = await client.post(
+        '/api/auth/refresh',
+        json: {'refreshToken': secondRefresh},
+      );
+      expect(againStatus, 200);
+    });
+
+    test('logout sans Bearer ne révoque que le refresh envoyé', () async {
+      final (aStatus, aBody) = await client.post('/api/auth/login', json: {
+        'email': 'rotate@example.com',
+        'password': 'password1',
+      });
+      expect(aStatus, 200);
+      final refreshA = aBody['refreshToken'] as String;
+
+      final (bStatus, bBody) = await client.post('/api/auth/login', json: {
+        'email': 'rotate@example.com',
+        'password': 'password1',
+      });
+      expect(bStatus, 200);
+      final refreshB = bBody['refreshToken'] as String;
+
+      final (logoutStatus, logoutBody) = await client.post(
+        '/api/auth/logout',
+        json: {'refreshToken': refreshA},
+      );
+      expect(logoutStatus, 200);
+      expect(logoutBody['ok'], true);
+
+      final (deadStatus, _) = await client.post('/api/auth/refresh', json: {'refreshToken': refreshA});
+      expect(deadStatus, 400);
+
+      final (liveStatus, _) = await client.post('/api/auth/refresh', json: {'refreshToken': refreshB});
+      expect(liveStatus, 200);
+    });
+
+    test('logout authentifié révoque toutes les sessions du compte', () async {
+      final (aStatus, aBody) = await client.post('/api/auth/login', json: {
+        'email': 'rotate@example.com',
+        'password': 'password1',
+      });
+      expect(aStatus, 200);
+      final access = aBody['accessToken'] as String;
+      final refreshA = aBody['refreshToken'] as String;
+
+      final (bStatus, bBody) = await client.post('/api/auth/login', json: {
+        'email': 'rotate@example.com',
+        'password': 'password1',
+      });
+      expect(bStatus, 200);
+      final refreshB = bBody['refreshToken'] as String;
+
+      final (logoutStatus, _) = await client.post(
+        '/api/auth/logout',
+        json: {'refreshToken': refreshA},
+        token: access,
+      );
+      expect(logoutStatus, 200);
+
+      final (deadA, _) = await client.post('/api/auth/refresh', json: {'refreshToken': refreshA});
+      final (deadB, _) = await client.post('/api/auth/refresh', json: {'refreshToken': refreshB});
+      expect(deadA, 400);
+      expect(deadB, 400);
+    });
+
+    test('DELETE /me supprime le compte et invalide le jeton', () async {
+      final (regStatus, regBody) = await client.post('/api/auth/register', json: {
+        'email': 'deleteme@example.com',
+        'password': 'password1',
+      });
+      expect(regStatus, 201);
+      final token = regBody['accessToken'] as String;
+
+      final (anonStatus, _) = await client.delete('/api/auth/me');
+      expect(anonStatus, 401);
+
+      final (deleteStatus, deleteBody) = await client.delete('/api/auth/me', token: token);
+      expect(deleteStatus, 200);
+      expect(deleteBody['ok'], true);
+
+      final (meStatus, _) = await client.get('/api/auth/me', token: token);
+      expect(meStatus, 401);
+
+      final (loginStatus, _) = await client.post('/api/auth/login', json: {
+        'email': 'deleteme@example.com',
+        'password': 'password1',
+      });
+      expect(loginStatus, 400);
+    });
+
+    test('forgot-password ne révèle pas si l\'email existe', () async {
+      final (status, body) = await client.post('/api/auth/forgot-password', json: {
+        'email': 'inconnu@example.com',
+      });
+      expect(status, 200);
+      expect(body['ok'], true);
+      expect(body.containsKey('resetToken'), isFalse);
+    });
+
+    test('forgot + reset change le mot de passe et révoque les refresh', () async {
+      final (regStatus, regBody) = await client.post('/api/auth/register', json: {
+        'email': 'resetme@example.com',
+        'password': 'password1',
+      });
+      expect(regStatus, 201);
+      final oldRefresh = regBody['refreshToken'] as String;
+
+      final (forgotStatus, forgotBody) = await client.post('/api/auth/forgot-password', json: {
+        'email': 'ResetMe@Example.com',
+      });
+      expect(forgotStatus, 200);
+      expect(forgotBody['ok'], true);
+      final resetToken = forgotBody['resetToken'] as String;
+      expect(resetToken, isNotEmpty);
+
+      final (shortStatus, _) = await client.post('/api/auth/reset-password', json: {
+        'token': resetToken,
+        'password': 'court',
+      });
+      expect(shortStatus, 400);
+
+      final (badStatus, _) = await client.post('/api/auth/reset-password', json: {
+        'token': 'pas-un-vrai-token',
+        'password': 'password2',
+      });
+      expect(badStatus, 400);
+
+      final (resetStatus, resetBody) = await client.post('/api/auth/reset-password', json: {
+        'token': resetToken,
+        'password': 'password2',
+      });
+      expect(resetStatus, 200);
+      expect(resetBody['ok'], true);
+
+      final (reuseStatus, _) = await client.post('/api/auth/reset-password', json: {
+        'token': resetToken,
+        'password': 'password3',
+      });
+      expect(reuseStatus, 400);
+
+      final (oldLogin, _) = await client.post('/api/auth/login', json: {
+        'email': 'resetme@example.com',
+        'password': 'password1',
+      });
+      expect(oldLogin, 400);
+
+      final (oldRefreshStatus, _) = await client.post('/api/auth/refresh', json: {
+        'refreshToken': oldRefresh,
+      });
+      expect(oldRefreshStatus, 400);
+
+      final (newLogin, newBody) = await client.post('/api/auth/login', json: {
+        'email': 'resetme@example.com',
+        'password': 'password2',
+      });
+      expect(newLogin, 200);
+      expect(newBody['accessToken'], isNotEmpty);
+    });
+
+    test('rate-limit forgot-password -> 429 au-delà du plafond', () async {
+      final max = Config.authRateLimitMax;
+      for (var i = 0; i < max; i++) {
+        final (status, _) = await client.post('/api/auth/forgot-password', json: {
+          'email': 'nobody-$i@example.com',
+        });
+        expect(status, 200, reason: 'tentative ${i + 1} doit passer');
+      }
+      final (status, body) = await client.post('/api/auth/forgot-password', json: {
+        'email': 'nobody-last@example.com',
+      });
+      expect(status, 429);
+      expect(body['error'], contains('Trop de tentatives'));
+    });
+
+    test('un filtre OR ne contourne pas la règle owner', () async {
+      final (aliceStatus, aliceBody) = await client.post('/api/auth/login', json: {
+        'email': 'alice@example.com',
+        'password': 'password1',
+      });
+      expect(aliceStatus, 200);
+      final aliceToken = aliceBody['accessToken'] as String;
+
+      final (bobStatus, bobBody) = await client.post('/api/auth/login', json: {
+        'email': 'bob@example.com',
+        'password': 'password1',
+      });
+      expect(bobStatus, 200);
+      final bobToken = bobBody['accessToken'] as String;
+
+      final (aliceNoteStatus, aliceNote) = await client.post(
+        '/api/collections/notes/records',
+        json: {'title': 'Alpha'},
+        token: aliceToken,
+      );
+      expect(aliceNoteStatus, 201);
+
+      final (bobNoteStatus, bobNote) = await client.post(
+        '/api/collections/notes/records',
+        json: {'title': 'Beta'},
+        token: bobToken,
+      );
+      expect(bobNoteStatus, 201);
+
+      // Sans parenthèses SQL, `owner = ? AND title = ? OR title != ?`
+      // laisserait passer la note de bob (OR moins prioritaire que AND).
+      final filter = Uri.encodeQueryComponent('title = "Beta" || title != "zzz"');
+      final (listStatus, listBody) = await client.get(
+        '/api/collections/notes/records?filter=$filter',
+        token: aliceToken,
+      );
+      expect(listStatus, 200);
+      final ids = (listBody['items'] as List).map((r) => r['id']).toList();
+      expect(ids, contains(aliceNote['id']));
+      expect(ids, isNot(contains(bobNote['id'])));
     });
   });
 }

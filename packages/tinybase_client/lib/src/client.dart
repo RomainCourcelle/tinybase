@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -31,6 +32,9 @@ class TinyBaseClient {
   /// Persistence layer for JWT tokens.
   final TokenStore tokenStore;
 
+  /// HTTP timeout applied to JSON requests (not SSE streams).
+  final Duration requestTimeout;
+
   final http.Client _http;
 
   /// Underlying HTTP client (used for streaming / multipart).
@@ -41,13 +45,14 @@ class TinyBaseClient {
 
   /// Creates a client for [baseUrl].
   ///
-  /// Defaults to [SharedPreferencesTokenStore] and a new [http.Client].
+  /// Defaults to [createDefaultTokenStore] (secure on mobile) and a 30s timeout.
   TinyBaseClient({
     required String baseUrl,
     TokenStore? tokenStore,
     http.Client? httpClient,
+    this.requestTimeout = const Duration(seconds: 30),
   })  : baseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl,
-        tokenStore = tokenStore ?? SharedPreferencesTokenStore(),
+        tokenStore = tokenStore ?? createDefaultTokenStore(),
         _http = httpClient ?? http.Client();
 
   /// Returns a CRUD helper for the named collection.
@@ -88,18 +93,22 @@ class TinyBaseClient {
 
     late http.Response response;
     try {
+      final Future<http.Response> future;
       switch (method.toUpperCase()) {
         case 'GET':
-          response = await _http.get(url, headers: headers);
+          future = _http.get(url, headers: headers);
         case 'POST':
-          response = await _http.post(url, headers: headers, body: encoded);
+          future = _http.post(url, headers: headers, body: encoded);
         case 'PATCH':
-          response = await _http.patch(url, headers: headers, body: encoded);
+          future = _http.patch(url, headers: headers, body: encoded);
         case 'DELETE':
-          response = await _http.delete(url, headers: headers);
+          future = _http.delete(url, headers: headers);
         default:
           throw TinyBaseException(0, 'Méthode HTTP non supportée : $method');
       }
+      response = await future.timeout(requestTimeout);
+    } on TimeoutException {
+      throw TinyBaseException(0, 'Délai d\'attente dépassé');
     } catch (e) {
       if (e is TinyBaseException) rethrow;
       throw TinyBaseException(0, 'Connexion au serveur impossible : $e');
@@ -145,8 +154,11 @@ class TinyBaseClient {
 
     late http.StreamedResponse streamed;
     try {
-      streamed = await _http.send(request);
+      streamed = await _http.send(request).timeout(requestTimeout);
+    } on TimeoutException {
+      throw TinyBaseException(0, 'Délai d\'attente dépassé');
     } catch (e) {
+      if (e is TinyBaseException) rethrow;
       throw TinyBaseException(0, 'Connexion au serveur impossible : $e');
     }
 

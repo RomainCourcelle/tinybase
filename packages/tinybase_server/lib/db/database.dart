@@ -16,11 +16,14 @@ class Database {
   /// [path] permet à la suite de tests (voir test/api_test.dart) de pointer
   /// vers un fichier temporaire isolé plutôt que la vraie base de dev — sans
   /// ce paramètre, comportement inchangé (toujours [Config.dbPath]).
-  static Future<void> init({String? path}) async {
+  static Future<void> init({String? path, bool? returnPasswordResetToken}) async {
     if (_initialized) return;
     // JWT avant tout service auth. On passe [path] pour que le fichier
     // `.jwt_secret` (si pas d'env) vive à côté de la DB de test / prod.
-    await Config.init(dbPathForSecret: path ?? Config.dbPath);
+    await Config.init(
+      dbPathForSecret: path ?? Config.dbPath,
+      returnPasswordResetToken: returnPasswordResetToken,
+    );
     instance = SqliteDatabase(path: path ?? Config.dbPath);
     await instance.initialize();
 
@@ -40,6 +43,8 @@ class Database {
     await _migrateSettingsOAuthProviders();
     await _migrateUsersOAuthIds();
     await _bootstrapAdminsTable();
+    await _bootstrapRefreshTokensTable();
+    await _bootstrapPasswordResetsTable();
 
     _initialized = true;
   }
@@ -248,5 +253,37 @@ class Database {
         updated TEXT NOT NULL
       );
     ''');
+  }
+
+  /// Refresh tokens côté serveur (révocation / rotation).
+  static Future<void> _bootstrapRefreshTokensTable() async {
+    await instance.execute('''
+      CREATE TABLE IF NOT EXISTS _refresh_tokens (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        created TEXT NOT NULL
+      );
+    ''');
+    await instance.execute(
+      'CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON _refresh_tokens(user_id);',
+    );
+  }
+
+  /// Tokens one-shot pour reset password.
+  static Future<void> _bootstrapPasswordResetsTable() async {
+    await instance.execute('''
+      CREATE TABLE IF NOT EXISTS _password_resets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        created TEXT NOT NULL
+      );
+    ''');
+    await instance.execute(
+      'CREATE INDEX IF NOT EXISTS idx_password_resets_user ON _password_resets(user_id);',
+    );
   }
 }

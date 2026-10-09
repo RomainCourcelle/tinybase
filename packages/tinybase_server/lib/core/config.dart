@@ -53,6 +53,29 @@ class Config {
   /// Origine CORS autorisée (`*` par défaut). Ex. `https://admin.example.com`.
   static String get corsAllowOrigin => _env('CORS_ALLOW_ORIGIN') ?? '*';
 
+  /// Si true, `POST /api/auth/forgot-password` renvoie aussi `resetToken`
+  /// (tests / staging sans SMTP). Ne jamais activer en prod publique.
+  static bool? _returnPasswordResetTokenOverride;
+  static bool get returnPasswordResetToken {
+    if (_returnPasswordResetTokenOverride != null) {
+      return _returnPasswordResetTokenOverride!;
+    }
+    final raw = _env('RETURN_PASSWORD_RESET_TOKEN');
+    return raw == '1' || raw?.toLowerCase() == 'true';
+  }
+
+  /// Max tentatives login/register/forgot par IP sur [authRateLimitWindow].
+  static int get authRateLimitMax {
+    final raw = _env('AUTH_RATE_LIMIT_MAX');
+    return int.tryParse(raw ?? '') ?? 20;
+  }
+
+  static Duration get authRateLimitWindow {
+    final raw = _env('AUTH_RATE_LIMIT_WINDOW_SECONDS');
+    final seconds = int.tryParse(raw ?? '') ?? 60;
+    return Duration(seconds: seconds.clamp(1, 3600));
+  }
+
   /// Dossier contenant le build Flutter Web de tinybase_admin (fichiers
   /// statiques `index.html` + `assets/` + `main.dart.js`), servi tel quel
   /// pour tout ce qui n'est pas une route `/api/*` — voir [buildApp] dans
@@ -78,8 +101,15 @@ class Config {
   /// Résout [jwtSecret] (env, override de test, ou fichier auto-généré).
   /// Idempotent. [dbPathForSecret] permet aux tests d'aligner le fichier
   /// secret sur leur DB temporaire (sinon on utiliserait le cwd du process).
-  static Future<void> init({String? dbPathForSecret, String? jwtSecretOverride}) async {
+  static Future<void> init({
+    String? dbPathForSecret,
+    String? jwtSecretOverride,
+    bool? returnPasswordResetToken,
+  }) async {
     if (_initialized) return;
+    if (returnPasswordResetToken != null) {
+      _returnPasswordResetTokenOverride = returnPasswordResetToken;
+    }
     _resolvedDbPath = dbPathForSecret ?? dbPath;
 
     if (jwtSecretOverride != null) {

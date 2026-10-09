@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:bcrypt/bcrypt.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:sqlite_async/sqlite_async.dart';
 import 'package:tinybase_shared/tinybase_shared.dart';
@@ -34,9 +37,21 @@ class AuthSession {
       };
 }
 
+/// Result of [AuthService.forgotPassword] (token only when Config allows).
+class ForgotPasswordResult {
+  final bool ok;
+  final String? resetToken;
+  const ForgotPasswordResult({required this.ok, this.resetToken});
+
+  Map<String, dynamic> toJson() => {
+        'ok': ok,
+        if (resetToken != null) 'resetToken': resetToken,
+      };
+}
+
 /// Inscription / connexion / rafraîchissement de session sur la collection
 /// `users`. Mots de passe hashés en bcrypt, sessions en JWT (access court +
-/// refresh long).
+/// refresh long) avec table `_refresh_tokens` pour révocation.
 class AuthService {
   final SqliteDatabase db;
   final SettingsService settings;
@@ -99,10 +114,6 @@ class AuthService {
   }
 
   /// Connexion / liaison OAuth générique (discord, google, apple, microsoft).
-  ///
-  /// [fields] : champs custom optionnels (même règles que register, mais les
-  /// champs required absents sont tolérés — le profil pourra être complété
-  /// via `PATCH /api/auth/me`).
   Future<AuthSession> loginOrRegisterWithOAuth({
     required String providerColumn,
     required String providerUserId,
@@ -148,7 +159,6 @@ class AuthService {
       throw AuthException('Les inscriptions sont actuellement fermées');
     }
 
-    // OAuth : coerce les extras fournis, sans exiger les required manquants.
     final custom = await _coerceCustomFields(fields, forCreate: false);
 
     final id = _uuid.v4();
@@ -189,6 +199,31 @@ class AuthService {
     }
 
     final userId = payload['sub'] as String;
+    final jti = payload['jti'] as String?;
+    final hash = _hashToken(refreshToken);
+
+    final stored = await db.getOptional(
+      'SELECT id, user_id, expires_at FROM _refresh_tokens WHERE token_hash = ?',
+      [hash],
+    );
+    if (stored == null) {
+      throw AuthException('Refresh token révoqué ou inconnu');
+    }
+    if (jti != null && stored['id'] != jti) {
+      throw AuthException('Refresh token invalide');
+    }
+    if (stored['user_id'] != userId) {
+      throw AuthException('Refresh token invalide');
+    }
+    final expiresAt = DateTime.tryParse(stored['expires_at'] as String);
+    if (expiresAt != null && expiresAt.isBefore(DateTime.now().toUtc())) {
+      await db.execute('DELETE FROM _refresh_tokens WHERE id = ?', [stored['id']]);
+      throw AuthException('Refresh token expiré');
+    }
+
+    // Rotation : invalide l'ancien avant d'émettre le nouveau.
+    await db.execute('DELETE FROM _refresh_tokens WHERE id = ?', [stored['id']]);
+
     final row = await db.getOptional('SELECT * FROM users WHERE id = ?', [userId]);
     if (row == null) throw AuthException('Utilisateur introuvable');
     if ((row['disabled'] as int? ?? 0) == 1) {
@@ -196,6 +231,81 @@ class AuthService {
     }
 
     return await _issueSession(row['id'] as String, row['email'] as String);
+  }
+
+  /// Révoque un refresh token (logout) et/ou tous les tokens du user.
+  Future<void> logout({String? userId, String? refreshToken}) async {
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      await db.execute(
+        'DELETE FROM _refresh_tokens WHERE token_hash = ?',
+        [_hashToken(refreshToken)],
+      );
+    }
+    if (userId != null) {
+      await db.execute('DELETE FROM _refresh_tokens WHERE user_id = ?', [userId]);
+    }
+  }
+
+  /// Suppression de compte (Play Store) : user + sessions + reset tokens.
+  Future<void> deleteAccount(String userId) async {
+    final row = await db.getOptional('SELECT id FROM users WHERE id = ?', [userId]);
+    if (row == null) throw AuthException('Utilisateur introuvable');
+    await db.execute('DELETE FROM _refresh_tokens WHERE user_id = ?', [userId]);
+    await db.execute('DELETE FROM _password_resets WHERE user_id = ?', [userId]);
+    await db.execute('DELETE FROM users WHERE id = ?', [userId]);
+  }
+
+  /// Demande de reset — réponse toujours ok (pas d'énumération d'emails).
+  Future<ForgotPasswordResult> forgotPassword(String email) async {
+    final normalized = _normalizeEmail(email);
+    final row = await db.getOptional('SELECT id FROM users WHERE email = ?', [normalized]);
+    if (row == null) {
+      return const ForgotPasswordResult(ok: true);
+    }
+
+    final userId = row['id'] as String;
+    await db.execute('DELETE FROM _password_resets WHERE user_id = ?', [userId]);
+
+    final rawToken = _uuid.v4() + _uuid.v4();
+    final id = _uuid.v4();
+    final now = DateTime.now().toUtc();
+    final expires = now.add(const Duration(hours: 1));
+    await db.execute(
+      'INSERT INTO _password_resets (id, user_id, token_hash, expires_at, created) VALUES (?, ?, ?, ?, ?)',
+      [id, userId, _hashToken(rawToken), expires.toIso8601String(), now.toIso8601String()],
+    );
+
+    // Sans SMTP en V0.4 : token renvoyé seulement si env de test/staging.
+    return ForgotPasswordResult(
+      ok: true,
+      resetToken: Config.returnPasswordResetToken ? rawToken : null,
+    );
+  }
+
+  Future<void> resetPassword({required String token, required String newPassword}) async {
+    if (newPassword.length < 8) {
+      throw AuthException('Le mot de passe doit faire au moins 8 caractères');
+    }
+    final hash = _hashToken(token);
+    final row = await db.getOptional(
+      'SELECT id, user_id, expires_at FROM _password_resets WHERE token_hash = ?',
+      [hash],
+    );
+    if (row == null) throw AuthException('Lien de réinitialisation invalide ou expiré');
+    final expiresAt = DateTime.tryParse(row['expires_at'] as String);
+    if (expiresAt == null || expiresAt.isBefore(DateTime.now().toUtc())) {
+      await db.execute('DELETE FROM _password_resets WHERE id = ?', [row['id']]);
+      throw AuthException('Lien de réinitialisation invalide ou expiré');
+    }
+
+    final userId = row['user_id'] as String;
+    final passwordHash = BCrypt.hashpw(newPassword, BCrypt.gensalt());
+    await db.execute(
+      'UPDATE users SET password_hash = ?, updated = ? WHERE id = ?',
+      [passwordHash, DateTime.now().toUtc().toIso8601String(), userId],
+    );
+    await db.execute('DELETE FROM _password_resets WHERE user_id = ?', [userId]);
+    await db.execute('DELETE FROM _refresh_tokens WHERE user_id = ?', [userId]);
   }
 
   /// Profil public : id, email, disabled + champs custom (sans secrets).
@@ -257,6 +367,9 @@ class AuthService {
       DateTime.now().toUtc().toIso8601String(),
       userId,
     ]);
+    if (disabled) {
+      await db.execute('DELETE FROM _refresh_tokens WHERE user_id = ?', [userId]);
+    }
     final public = _publicUser(Map<String, dynamic>.from(row));
     public['disabled'] = disabled;
     return public;
@@ -312,12 +425,23 @@ class AuthService {
 
   Future<AuthSession> _issueSession(String userId, String email) async {
     final appSettings = await settings.get();
+    final jti = _uuid.v4();
     final access = JWT({'sub': userId, 'type': 'access'})
         .sign(SecretKey(Config.jwtSecret), expiresIn: appSettings.accessTokenTtl);
-    final refresh = JWT({'sub': userId, 'type': 'refresh'})
+    final refresh = JWT({'sub': userId, 'type': 'refresh', 'jti': jti})
         .sign(SecretKey(Config.jwtSecret), expiresIn: appSettings.refreshTokenTtl);
+
+    final now = DateTime.now().toUtc();
+    final expires = now.add(appSettings.refreshTokenTtl);
+    await db.execute(
+      'INSERT INTO _refresh_tokens (id, user_id, token_hash, expires_at, created) VALUES (?, ?, ?, ?, ?)',
+      [jti, userId, _hashToken(refresh), expires.toIso8601String(), now.toIso8601String()],
+    );
+
     return AuthSession(userId: userId, email: email, accessToken: access, refreshToken: refresh);
   }
+
+  static String _hashToken(String token) => sha256.convert(utf8.encode(token)).toString();
 
   static String _normalizeEmail(String email) => email.trim().toLowerCase();
 }

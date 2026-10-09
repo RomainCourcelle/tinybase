@@ -17,20 +17,30 @@
 - [x] Discord `target` allowlist + email Discord `verified` only
 - [x] Setup admin atomique + filtre `IS NULL` + email normalisé
 
-## V2
+## V2 (fait)
 - [x] Stockage de fichiers (local d'abord, S3-compatible ensuite)
 - [x] Temps réel (SSE sur les changements de collection)
 - [x] Options `max:` / `mime:` par champ file
 - [x] Collection `users` extensible (schéma + register + PATCH /me)
 - [x] Docs Getting Started (tinybase_docs)
 - [x] Hardening 0.3.x : SSE delete ACL + ping/reconnect, MIME wildcards, download Content-Type, multipart cap, CORS env, 500 génériques, OAuth fragment tokens, validation email/url/select
+
+## 0.4 (fait)
+- [x] Logout (`POST /api/auth/logout`) et suppression de compte (`DELETE /api/auth/me`)
+- [x] Mot de passe oublié / reset (token renvoyé seulement si `RETURN_PASSWORD_RESET_TOKEN`)
+- [x] Rotation et révocation des refresh tokens (`_refresh_tokens`, `_password_resets`)
+- [x] Rate-limit login / register / forgot / reset
+- [x] Parenthèses SQL autour du WHERE (règle + filtre) pour qu'un `OR` ne contourne pas l'ACL
+- [x] Client : `SecureTokenStore`, restore offline-safe, lock de refresh, timeouts, `deleteAccount` / `forgotPassword` / `resetPassword`
+- [x] Admin records : colonne Actions + scrollbars visibles
+
+## V2 — reste à faire
 - [ ] Batch API (plusieurs opérations transactionnelles en un call)
 - [ ] Backups automatiques programmés
 - [ ] Logs/dashboard admin avancé
 - [ ] Migrations versionnées du schéma (historique, rollback)
 - [ ] Cron jobs / webhooks sortants
 - [ ] Multi-admins / rôles
-- [ ] Parseur de filtre avec parenthèses et précédence complète
+- [ ] Parseur de filtre avec parenthèses dans le langage et précédence `&&` / `||` (le WHERE SQL est déjà parenthésé en 0.4)
 - [ ] Expand / relations (FK) + validation select/email/url
-- [ ] Rotation / révocation des refresh tokens
 - [ ] Stockage S3-compatible (suite fichiers)

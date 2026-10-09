@@ -99,16 +99,37 @@ class TinyBaseAuth {
   /// Whether an access token is currently held in memory.
   bool get isAuthenticated => _accessToken != null;
 
+  Future<bool>? _refreshInFlight;
+
   /// Restores a session from [TokenStore] (refreshes if needed).
+  ///
+  /// Network errors do **not** clear the stored session (offline-friendly).
+  /// Auth failures (invalid/revoked refresh) still call [logout].
   Future<bool> restore() async {
     final refresh = await _client.tokenStore.readRefreshToken();
     if (refresh == null) return false;
+
+    final access = await _client.tokenStore.readAccessToken();
+    final userJson = await _client.tokenStore.readUserJson();
+    if (access != null) _accessToken = access;
+    if (userJson != null) {
+      try {
+        _user = TinyBaseUser.fromJson(jsonDecode(userJson) as Map<String, dynamic>);
+      } catch (_) {}
+    }
+
     try {
       await _refreshWith(refresh);
       return true;
-    } catch (_) {
+    } on TinyBaseException catch (e) {
+      if (e.statusCode == 0) {
+        // Offline / timeout : keep local tokens.
+        return _accessToken != null;
+      }
       await logout();
       return false;
+    } catch (_) {
+      return _accessToken != null;
     }
   }
 
@@ -164,11 +185,56 @@ class TinyBaseAuth {
     return user;
   }
 
-  /// Clears the in-memory session and [TokenStore].
+  /// Clears the in-memory session and [TokenStore], and revokes refresh on server.
   Future<void> logout() async {
+    final refresh = await _client.tokenStore.readRefreshToken();
+    try {
+      if (refresh != null) {
+        await _client.requestJson(
+          'POST',
+          '/api/auth/logout',
+          body: {'refreshToken': refresh},
+          auth: false,
+        );
+      }
+    } catch (_) {
+      // Best effort — always clear local session.
+    }
     _user = null;
     _accessToken = null;
     await _client.tokenStore.clear();
+  }
+
+  /// Deletes the authenticated account (`DELETE /api/auth/me`) then clears local session.
+  Future<void> deleteAccount() async {
+    await _client.requestJson('DELETE', '/api/auth/me');
+    _user = null;
+    _accessToken = null;
+    await _client.tokenStore.clear();
+  }
+
+  /// Requests a password-reset email/token (`POST /api/auth/forgot-password`).
+  ///
+  /// Always returns `{ok: true}` from the server (no email enumeration).
+  /// When the server has `RETURN_PASSWORD_RESET_TOKEN=true`, [resetToken] is set.
+  Future<String?> forgotPassword(String email) async {
+    final json = await _client.requestJson(
+      'POST',
+      '/api/auth/forgot-password',
+      body: {'email': email},
+      auth: false,
+    ) as Map<String, dynamic>;
+    return json['resetToken'] as String?;
+  }
+
+  /// Completes password reset with the token from [forgotPassword] / email link.
+  Future<void> resetPassword({required String token, required String password}) async {
+    await _client.requestJson(
+      'POST',
+      '/api/auth/reset-password',
+      body: {'token': token, 'password': password},
+      auth: false,
+    );
   }
 
   /// Browser authorize URL for Discord or Microsoft (`target` = deep-link scheme).
@@ -223,12 +289,26 @@ class TinyBaseAuth {
   }
 
   /// Called by [TinyBaseClient.send] on `401`. Returns `false` if refresh fails.
+  ///
+  /// Concurrent callers share a single in-flight refresh.
   Future<bool> tryRefresh() async {
+    if (_refreshInFlight != null) return _refreshInFlight!;
+    _refreshInFlight = _tryRefreshOnce().whenComplete(() {
+      _refreshInFlight = null;
+    });
+    return _refreshInFlight!;
+  }
+
+  Future<bool> _tryRefreshOnce() async {
     final refresh = await _client.tokenStore.readRefreshToken();
     if (refresh == null) return false;
     try {
       await _refreshWith(refresh);
       return true;
+    } on TinyBaseException catch (e) {
+      if (e.statusCode == 0) return false; // network — keep session
+      await logout();
+      return false;
     } catch (_) {
       await logout();
       return false;
