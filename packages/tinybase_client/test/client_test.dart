@@ -87,6 +87,57 @@ void main() {
     });
   });
 
+  group('TinyBaseAuth.restore', () {
+    Future<TinyBaseClient> clientWithSession(MockClient mock) async {
+      final store = InMemoryTokenStore();
+      await store.writeSession(
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        userJson: jsonEncode({'id': 'u1', 'email': 'a@b.c'}),
+      );
+      return TinyBaseClient(
+        baseUrl: 'https://api.example.com',
+        tokenStore: store,
+        httpClient: mock,
+      );
+    }
+
+    test('garde la session sur 502', () async {
+      final mock = MockClient((request) async {
+        expect(request.url.path, '/api/auth/refresh');
+        return http.Response(jsonEncode({'error': 'bad gateway'}), 502);
+      });
+      final client = await clientWithSession(mock);
+      final ok = await client.auth.restore();
+      expect(ok, isTrue);
+      expect(await client.tokenStore.readRefreshToken(), 'refresh');
+    });
+
+    test('déconnecte sur 400 (refresh révoqué)', () async {
+      final mock = MockClient((request) async {
+        if (request.url.path == '/api/auth/refresh') {
+          return http.Response(jsonEncode({'error': 'révoqué'}), 400);
+        }
+        if (request.url.path == '/api/auth/logout') {
+          return http.Response(jsonEncode({'ok': true}), 200);
+        }
+        return http.Response('nope', 500);
+      });
+      final client = await clientWithSession(mock);
+      final ok = await client.auth.restore();
+      expect(ok, isFalse);
+      expect(await client.tokenStore.readRefreshToken(), isNull);
+    });
+
+    test('isFatalAuthStatus ne couvre pas 429/502', () {
+      expect(TinyBaseAuth.isFatalAuthStatus(400), isTrue);
+      expect(TinyBaseAuth.isFatalAuthStatus(401), isTrue);
+      expect(TinyBaseAuth.isFatalAuthStatus(429), isFalse);
+      expect(TinyBaseAuth.isFatalAuthStatus(502), isFalse);
+      expect(TinyBaseAuth.isFatalAuthStatus(0), isFalse);
+    });
+  });
+
   group('TinyBaseCollection', () {
     test('list parse RecordPage', () async {
       final mock = MockClient((request) async {

@@ -15,6 +15,7 @@ import '../services/records_service.dart';
 import '../services/settings_service.dart';
 import 'middleware/auth_middleware.dart';
 import 'middleware/cors_middleware.dart';
+import 'routes/account_pages.dart';
 import 'routes/admin_auth_routes.dart';
 import 'routes/auth_routes.dart';
 import 'routes/collections_routes.dart';
@@ -81,6 +82,10 @@ Handler buildApp() {
 
   root.mount('/api/meta', buildMetaRoutes().call);
   root.mount('/api/collections', buildRecordsRoutes(recordsService, realtimeHub).call);
+
+  // Pages web Play Store / App Store (hors admin SPA).
+  root.get('/delete-account', deleteAccountPage);
+  root.get('/reset-password', resetPasswordPage);
 
   root.get('/health', (Request request) => Response.ok('{"ok":true}', headers: {'content-type': 'application/json'}));
 

@@ -145,5 +145,23 @@ Router buildAuthRoutes(AuthService authService) {
     }
   });
 
+  /// Play Store / web : email + password → suppression (sans Bearer).
+  router.post('/delete-account', (Request request) async {
+    try {
+      final limited = rejectIfRateLimited(request, 'delete-account');
+      if (limited != null) return limited;
+      final body = await request.readJson();
+      final email = body['email'] as String?;
+      final password = body['password'] as String?;
+      if (email == null || password == null) {
+        return jsonResponse({'error': 'email et password requis'}, status: 400);
+      }
+      await authService.deleteAccountWithPassword(email: email, password: password);
+      return jsonResponse({'ok': true});
+    } catch (e) {
+      return errorResponse(e);
+    }
+  });
+
   return router;
 }

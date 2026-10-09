@@ -9,8 +9,12 @@ Router buildMetaRoutes() {
   final router = Router();
 
   router.get('/', (Request request) {
+    final base = Config.publicBaseUrl;
     return jsonResponse({
       'appName': Config.appName,
+      'smtpConfigured': Config.smtpConfigured,
+      'deleteAccountUrl': base == null ? '/delete-account' : '$base/delete-account',
+      'resetPasswordPath': '/reset-password',
     });
   });
 

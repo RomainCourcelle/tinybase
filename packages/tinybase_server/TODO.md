@@ -34,6 +34,13 @@
 - [x] Client : `SecureTokenStore`, restore offline-safe, lock de refresh, timeouts, `deleteAccount` / `forgotPassword` / `resetPassword`
 - [x] Admin records : colonne Actions + scrollbars visibles
 
+## 0.4.1 (fait)
+- [x] `restore` / refresh : logout seulement sur 400/401/403 + lock partagé
+- [x] Migration SharedPreferences → Keystore ; SSE UTF-8 chunk-safe
+- [x] Rate-limit IP = dernier hop XFF / X-Real-IP
+- [x] SMTP optionnel + pages `/delete-account` et `/reset-password` (stores)
+- [x] CI GitHub Actions
+
 ## V2 — reste à faire
 - [ ] Batch API (plusieurs opérations transactionnelles en un call)
 - [ ] Backups automatiques programmés

@@ -31,12 +31,20 @@ class AuthRateLimiter {
 
 final authRateLimiter = AuthRateLimiter();
 
+/// Client IP behind a trusted reverse proxy (Railway / nginx).
+///
+/// Prefer `X-Real-IP`. For `X-Forwarded-For`, take the **last** hop — proxies
+/// append, so the first value can be spoofed by the client.
 String clientIp(Request request) {
+  final realIp = request.headers['x-real-ip']?.trim();
+  if (realIp != null && realIp.isNotEmpty) return realIp;
+
   final forwarded = request.headers['x-forwarded-for'];
   if (forwarded != null && forwarded.isNotEmpty) {
-    return forwarded.split(',').first.trim();
+    final parts = forwarded.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty);
+    if (parts.isNotEmpty) return parts.last;
   }
-  return request.headers['x-real-ip'] ?? 'local';
+  return 'local';
 }
 
 /// Middleware optionnel sur un sous-router — ou helper à appeler dans les routes.

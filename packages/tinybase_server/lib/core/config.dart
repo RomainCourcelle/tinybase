@@ -64,6 +64,46 @@ class Config {
     return raw == '1' || raw?.toLowerCase() == 'true';
   }
 
+  /// URL publique de l'instance (sans slash final). Ex. `https://api.example.com`.
+  /// Utilisée pour les liens reset / delete-account dans les emails et `/api/meta`.
+  static String? get publicBaseUrl {
+    final raw = _env('PUBLIC_BASE_URL');
+    if (raw == null) return null;
+    return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+  }
+
+  /// Template de lien reset. `{token}` est remplacé.
+  /// Défaut : `$publicBaseUrl/reset-password?token={token}`.
+  static String? passwordResetLink(String token) {
+    final tpl = _env('PASSWORD_RESET_URL_TEMPLATE');
+    if (tpl != null && tpl.contains('{token}')) {
+      return tpl.replaceAll('{token}', Uri.encodeComponent(token));
+    }
+    final base = publicBaseUrl;
+    if (base == null) return null;
+    return '$base/reset-password?token=${Uri.encodeComponent(token)}';
+  }
+
+  static String? get smtpHost => _env('SMTP_HOST');
+  static int get smtpPort {
+    final raw = _env('SMTP_PORT');
+    return int.tryParse(raw ?? '') ?? 587;
+  }
+
+  static String? get smtpUser => _env('SMTP_USER');
+  static String? get smtpPassword => _env('SMTP_PASSWORD');
+  static String? get smtpFrom => _env('SMTP_FROM');
+  static bool get smtpSsl {
+    final raw = _env('SMTP_SSL');
+    return raw == '1' || raw?.toLowerCase() == 'true';
+  }
+
+  static bool get smtpConfigured =>
+      smtpHost != null &&
+      smtpHost!.isNotEmpty &&
+      smtpFrom != null &&
+      smtpFrom!.isNotEmpty;
+
   /// Max tentatives login/register/forgot par IP sur [authRateLimitWindow].
   static int get authRateLimitMax {
     final raw = _env('AUTH_RATE_LIMIT_MAX');

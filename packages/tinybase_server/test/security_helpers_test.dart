@@ -1,9 +1,34 @@
+import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
+import 'package:tinybase/api/middleware/rate_limit_middleware.dart';
 import 'package:tinybase/api/routes/discord_auth_routes.dart';
 import 'package:tinybase/services/filter_parser.dart';
 
 void main() {
+  group('clientIp', () {
+    test('préfère X-Real-IP', () {
+      final req = Request(
+        'GET',
+        Uri.parse('http://localhost/'),
+        headers: {
+          'x-real-ip': '9.9.9.9',
+          'x-forwarded-for': '1.1.1.1, 2.2.2.2',
+        },
+      );
+      expect(clientIp(req), '9.9.9.9');
+    });
+
+    test('prend le dernier hop X-Forwarded-For (non falsifiable)', () {
+      final req = Request(
+        'GET',
+        Uri.parse('http://localhost/'),
+        headers: {'x-forwarded-for': '1.2.3.4, 10.0.0.8'},
+      );
+      expect(clientIp(req), '10.0.0.8');
+    });
+  });
+
   group('FilterParser null', () {
     test('= null devient IS NULL', () {
       final (sql, params) = FilterParser.parse('title = null', {'title'});

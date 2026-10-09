@@ -164,7 +164,7 @@ class TinyBaseCollection {
   Stream<RecordChange> subscribe() {
     late StreamController<RecordChange> controller;
     http.StreamedResponse? response;
-    StreamSubscription<List<int>>? bytesSub;
+    StreamSubscription<String>? bytesSub;
     var buffer = '';
     var cancelled = false;
     var attempt = 0;
@@ -210,9 +210,10 @@ class TinyBaseCollection {
       }
 
       attempt = 0;
-      bytesSub = response!.stream.listen(
+      // utf8.decoder reassembles multi-byte chars split across TCP chunks.
+      bytesSub = response!.stream.transform(utf8.decoder).listen(
         (chunk) {
-          buffer += utf8.decode(chunk);
+          buffer += chunk;
           while (true) {
             final sep = buffer.indexOf('\n\n');
             if (sep < 0) break;

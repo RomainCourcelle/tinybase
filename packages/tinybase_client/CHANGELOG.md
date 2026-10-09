@@ -1,3 +1,10 @@
+## 0.4.1
+
+- `restore()` / refresh: logout only on 400/401/403 (keep session on 502/429).
+- `restore()` shares the refresh lock with 401 retries.
+- SSE: UTF-8 decoder reassembles multi-byte characters across chunks.
+- `SecureTokenStore` migrates legacy SharedPreferences tokens then clears them.
+
 ## 0.4.0
 
 - `SecureTokenStore` (Keystore / Keychain) as the default on mobile.

@@ -35,7 +35,10 @@ MAX_FILE_SIZE        # optionnel (défaut 10 Mo)
 CORS_ALLOW_ORIGIN    # si l’admin/docs est sur un autre domaine
 # JWT_SECRET         # recommandé si plusieurs replicas
 # AUTH_RATE_LIMIT_MAX            # défaut 20 / IP / minute
-# RETURN_PASSWORD_RESET_TOKEN    # true seulement en staging (pas d’email)''',
+# PUBLIC_BASE_URL                # https://ton-api.example.com (liens email + meta)
+# SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_FROM
+# PASSWORD_RESET_URL_TEMPLATE    # optionnel, doit contenir {token}
+# RETURN_PASSWORD_RESET_TOKEN    # true seulement en staging sans SMTP''',
             ),
             DocStep(
               label: 'Lancer en local',
@@ -171,20 +174,20 @@ await auth.logout(); // révoque le refresh côté serveur''',
               where: 'Écran réglages, après confirmation',
               detail:
                   'Efface l’utilisateur, ses sessions, les records dont il est `owner`, et leurs fichiers. '
-                  'Les records des autres comptes restent.',
-              code: r'''await client.auth.deleteAccount();''',
+                  'Play Store : publie aussi l’URL `{PUBLIC_BASE_URL}/delete-account` (page web sans l’app).',
+              code: r'''await client.auth.deleteAccount();
+// Page web (stores) : GET /delete-account''',
             ),
             DocStep(
               label: 'Mot de passe oublié',
               where: 'Écran login',
               detail:
-                  'La réponse est toujours ok (on ne révèle pas si l’email existe). '
-                  'En 0.4 il n’y a pas d’email : le token n’est renvoyé que si '
-                  '`RETURN_PASSWORD_RESET_TOKEN=true` (staging).',
-              code: r'''final token = await client.auth.forgotPassword(email);
-if (token != null) {
-  await client.auth.resetPassword(token: token, password: newPassword);
-}''',
+                  'Avec SMTP configuré, un email est envoyé (lien `/reset-password?token=`). '
+                  'Sans SMTP, le token n’est renvoyé que si `RETURN_PASSWORD_RESET_TOKEN=true` (staging).',
+              code: r'''await client.auth.forgotPassword(email);
+// Prod : l’utilisateur ouvre le lien reçu par email
+// Staging : final token = await client.auth.forgotPassword(email);
+// if (token != null) await client.auth.resetPassword(...);''',
             ),
           ],
         ),

@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../core/config.dart';
 import 'collections_service.dart';
 import 'files_service.dart';
+import 'mail_service.dart';
 import 'settings_service.dart';
 
 const _uuid = Uuid();
@@ -58,6 +59,7 @@ class AuthService {
   final SettingsService settings;
   final CollectionsService collections;
   final FilesService files;
+  final MailService mail;
 
   /// Records `owner = userId` dans les collections base. Branché depuis
   /// [buildApp] vers [RecordsService.deleteOwnedBy].
@@ -68,7 +70,9 @@ class AuthService {
     this.settings,
     this.collections, {
     FilesService? files,
-  }) : files = files ?? FilesService();
+    MailService? mail,
+  })  : files = files ?? FilesService(),
+        mail = mail ?? MailService();
 
   Future<AuthSession> register(
     String email,
@@ -272,6 +276,15 @@ class AuthService {
     await files.deleteRecordFiles('users', userId);
   }
 
+  /// Suppression via email + mot de passe (page web `/delete-account`, Play Store).
+  Future<void> deleteAccountWithPassword({
+    required String email,
+    required String password,
+  }) async {
+    final session = await login(email, password);
+    await deleteAccount(session.userId);
+  }
+
   /// Demande de reset — réponse toujours ok (pas d'énumération d'emails).
   Future<ForgotPasswordResult> forgotPassword(String email) async {
     final normalized = _normalizeEmail(email);
@@ -292,7 +305,18 @@ class AuthService {
       [id, userId, _hashToken(rawToken), expires.toIso8601String(), now.toIso8601String()],
     );
 
-    // Sans SMTP en V0.4 : token renvoyé seulement si env de test/staging.
+    final link = Config.passwordResetLink(rawToken);
+    if (Config.smtpConfigured && link != null) {
+      try {
+        await mail.sendPasswordReset(toEmail: normalized, resetLink: link);
+      } catch (e) {
+        // ignore: avoid_print
+        print('SMTP password-reset failed: $e');
+        throw AuthException('Impossible d\'envoyer l\'email de réinitialisation');
+      }
+    }
+
+    // Staging / tests sans SMTP : token renvoyé seulement si env l'autorise.
     return ForgotPasswordResult(
       ok: true,
       resetToken: Config.returnPasswordResetToken ? rawToken : null,

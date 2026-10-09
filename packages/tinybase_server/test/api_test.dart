@@ -49,6 +49,12 @@ class _TestClient {
   }
 
   Future<(int, dynamic)> get(String path, {String? token}) => _send('GET', path, token: token);
+
+  Future<(int status, String body, String? contentType)> getRaw(String path) async {
+    final request = Request('GET', Uri.parse('http://localhost$path'));
+    final response = await handler(request);
+    return (response.statusCode, await response.readAsString(), response.headers['content-type']);
+  }
   Future<(int, dynamic)> post(String path, {Map<String, dynamic>? json, String? token}) =>
       _send('POST', path, json: json, token: token);
   Future<(int, dynamic)> patch(String path, {Map<String, dynamic>? json, String? token}) =>
@@ -910,6 +916,8 @@ void main() {
       final (status, body) = await client.get('/api/meta');
       expect(status, 200);
       expect(body, containsPair('appName', null));
+      expect(body['deleteAccountUrl'], '/delete-account');
+      expect(body['smtpConfigured'], false);
     });
 
     test('crée une collection docs avec champ file', () async {
@@ -1421,6 +1429,49 @@ void main() {
       final ids = (listBody['items'] as List).map((r) => r['id']).toList();
       expect(ids, contains(aliceNote['id']));
       expect(ids, isNot(contains(bobNote['id'])));
+    });
+
+    test('GET /delete-account sert la page Play Store', () async {
+      final (status, body, contentType) = await client.getRaw('/delete-account');
+      expect(status, 200);
+      expect(contentType, contains('text/html'));
+      expect(body, contains('Supprimer mon compte'));
+      expect(body, contains('/api/auth/delete-account'));
+    });
+
+    test('GET /reset-password sert le formulaire', () async {
+      final (status, body, contentType) = await client.getRaw('/reset-password?token=abc');
+      expect(status, 200);
+      expect(contentType, contains('text/html'));
+      expect(body, contains('Nouveau mot de passe'));
+      expect(body, contains('abc'));
+    });
+
+    test('POST /api/auth/delete-account (email+password) efface le compte', () async {
+      final (regStatus, _) = await client.post('/api/auth/register', json: {
+        'email': 'webdelete@example.com',
+        'password': 'password1',
+      });
+      expect(regStatus, 201);
+
+      final (badStatus, _) = await client.post('/api/auth/delete-account', json: {
+        'email': 'webdelete@example.com',
+        'password': 'wrongpass',
+      });
+      expect(badStatus, 400);
+
+      final (okStatus, okBody) = await client.post('/api/auth/delete-account', json: {
+        'email': 'webdelete@example.com',
+        'password': 'password1',
+      });
+      expect(okStatus, 200);
+      expect(okBody['ok'], true);
+
+      final (loginStatus, _) = await client.post('/api/auth/login', json: {
+        'email': 'webdelete@example.com',
+        'password': 'password1',
+      });
+      expect(loginStatus, 400);
     });
   });
 }

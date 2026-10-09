@@ -26,6 +26,9 @@ Variables importantes :
 - `JWT_SECRET` recommandé si plusieurs instances (sinon fichier `.jwt_secret` à côté de la DB)
 - `APP_NAME` (optionnel) → nom affiché dans l'admin (sinon dérivé du domaine)
 - `FILES_DIR` / `MAX_FILE_SIZE` (optionnels) → stockage fichiers
+- `PUBLIC_BASE_URL` → URL publique de l'API (liens email, meta `deleteAccountUrl`)
+- `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` → reset password par email
+- Pages stores : `/delete-account`, `/reset-password`
 
 Sans `DB_PATH` sur volume, la base est perdue à chaque redeploy.
 

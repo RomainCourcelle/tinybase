@@ -101,10 +101,16 @@ class TinyBaseAuth {
 
   Future<bool>? _refreshInFlight;
 
+  /// HTTP statuses that mean the refresh token is dead (logout).
+  /// Transient errors (502, 429, …) must keep the local session.
+  static bool isFatalAuthStatus(int statusCode) =>
+      statusCode == 400 || statusCode == 401 || statusCode == 403;
+
   /// Restores a session from [TokenStore] (refreshes if needed).
   ///
-  /// Network errors do **not** clear the stored session (offline-friendly).
-  /// Auth failures (invalid/revoked refresh) still call [logout].
+  /// Network / transient HTTP errors do **not** clear the session.
+  /// Only fatal auth statuses ([isFatalAuthStatus]) call [logout].
+  /// Shares the same in-flight lock as [tryRefresh].
   Future<bool> restore() async {
     final refresh = await _client.tokenStore.readRefreshToken();
     if (refresh == null) return false;
@@ -118,19 +124,11 @@ class TinyBaseAuth {
       } catch (_) {}
     }
 
-    try {
-      await _refreshWith(refresh);
-      return true;
-    } on TinyBaseException catch (e) {
-      if (e.statusCode == 0) {
-        // Offline / timeout : keep local tokens.
-        return _accessToken != null;
-      }
-      await logout();
-      return false;
-    } catch (_) {
-      return _accessToken != null;
-    }
+    final ok = await tryRefresh();
+    if (ok) return true;
+    // Transient failure : keep offline session if tokens are still there.
+    final still = await _client.tokenStore.readRefreshToken();
+    return still != null && _accessToken != null;
   }
 
   /// Registers a new account and persists the session.
@@ -308,11 +306,12 @@ class TinyBaseAuth {
       await _refreshWith(refresh);
       return true;
     } on TinyBaseException catch (e) {
-      if (e.statusCode == 0) return false; // network — keep session
+      if (e.statusCode == 0 || !isFatalAuthStatus(e.statusCode)) {
+        return false; // network / 502 / 429 — keep session
+      }
       await logout();
       return false;
     } catch (_) {
-      await logout();
       return false;
     }
   }
