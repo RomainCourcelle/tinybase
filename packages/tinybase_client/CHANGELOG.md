@@ -1,3 +1,7 @@
+## 0.4.4
+
+- Version aligned with server/docs 0.4.4 (OAuth callback already accepts query tokens).
+
 ## 0.4.3
 
 - Empty access tokens are ignored (`isAuthenticated`, Bearer headers, prefs migration).

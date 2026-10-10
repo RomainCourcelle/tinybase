@@ -77,6 +77,7 @@ const _entries = <_ChangeEntry>[
     date: '2026-10',
     bullets: [
       'OAuth Discord/Microsoft : tokens en query sur le deep-link (le `#fragment` était perdu sur Windows/Android).',
+      'Client pub.dev aligné en 0.4.4 (déjà compatible query).',
     ],
   ),
   _ChangeEntry(
