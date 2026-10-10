@@ -96,8 +96,8 @@ class TinyBaseAuth {
   /// Current access token in memory (may be null before [restore]).
   String? get accessToken => _accessToken;
 
-  /// Whether an access token is currently held in memory.
-  bool get isAuthenticated => _accessToken != null;
+  /// Whether a non-empty access token is currently held in memory.
+  bool get isAuthenticated => _accessToken != null && _accessToken!.isNotEmpty;
 
   Future<bool>? _refreshInFlight;
 
@@ -113,12 +113,12 @@ class TinyBaseAuth {
   /// Shares the same in-flight lock as [tryRefresh].
   Future<bool> restore() async {
     final refresh = await _client.tokenStore.readRefreshToken();
-    if (refresh == null) return false;
+    if (refresh == null || refresh.isEmpty) return false;
 
     final access = await _client.tokenStore.readAccessToken();
     final userJson = await _client.tokenStore.readUserJson();
-    if (access != null) _accessToken = access;
-    if (userJson != null) {
+    if (access != null && access.isNotEmpty) _accessToken = access;
+    if (userJson != null && userJson.isNotEmpty) {
       try {
         _user = TinyBaseUser.fromJson(jsonDecode(userJson) as Map<String, dynamic>);
       } catch (_) {}
@@ -128,7 +128,10 @@ class TinyBaseAuth {
     if (ok) return true;
     // Transient failure : keep offline session if tokens are still there.
     final still = await _client.tokenStore.readRefreshToken();
-    return still != null && _accessToken != null;
+    return still != null &&
+        still.isNotEmpty &&
+        _accessToken != null &&
+        _accessToken!.isNotEmpty;
   }
 
   /// Registers a new account and persists the session.
@@ -301,7 +304,7 @@ class TinyBaseAuth {
 
   Future<bool> _tryRefreshOnce() async {
     final refresh = await _client.tokenStore.readRefreshToken();
-    if (refresh == null) return false;
+    if (refresh == null || refresh.isEmpty) return false;
     try {
       await _refreshWith(refresh);
       return true;

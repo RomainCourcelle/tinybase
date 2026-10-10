@@ -45,6 +45,11 @@
 - [x] SMTP configurable dans Admin → Réglages (DB `_settings`) ; env `SMTP_*` = fallback
 - [x] `PUBLIC_BASE_URL` reste en variable d’env (liens email / stores)
 
+## 0.4.3 (fait)
+- [x] Delete-account par lien email (OAuth / Play Store)
+- [x] OAuth redirect_uri via `PUBLIC_BASE_URL` (Discord / Microsoft)
+- [x] SMTP fail sans énumération ; migration access vide ; timeout downloadFile
+
 ## V2 — reste à faire
 - [ ] Batch API (plusieurs opérations transactionnelles en un call)
 - [ ] Backups automatiques programmés

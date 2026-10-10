@@ -73,6 +73,15 @@ class _ChangeEntry {
 
 const _entries = <_ChangeEntry>[
   _ChangeEntry(
+    version: '0.4.3',
+    date: '2026-10',
+    bullets: [
+      'Suppression de compte OAuth : lien email (`/delete-account` + request/confirm).',
+      'OAuth Discord/Microsoft : `redirect_uri` = `PUBLIC_BASE_URL` (fix proxy Railway).',
+      'SMTP fail n’énumère plus les emails ; migration tokens vides corrigée ; timeout `downloadFile`.',
+    ],
+  ),
+  _ChangeEntry(
     version: '0.4.2',
     date: '2026-10',
     bullets: [

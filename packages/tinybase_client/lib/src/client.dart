@@ -85,7 +85,9 @@ class TinyBaseClient {
     };
     if (auth) {
       final token = await tokenStore.readAccessToken();
-      if (token != null) headers['Authorization'] = 'Bearer $token';
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
     }
 
     final url = uri(path, query);
@@ -136,7 +138,9 @@ class TinyBaseClient {
     final request = http.MultipartRequest(method.toUpperCase(), uri(path));
     if (auth) {
       final token = await tokenStore.readAccessToken();
-      if (token != null) request.headers['Authorization'] = 'Bearer $token';
+      if (token != null && token.isNotEmpty) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
     }
     request.fields['data'] = jsonEncode(data);
     for (final entry in files.entries) {

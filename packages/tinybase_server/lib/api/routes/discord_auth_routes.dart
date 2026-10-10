@@ -7,6 +7,7 @@ import 'package:shelf_router/shelf_router.dart';
 import '../../services/auth_service.dart';
 import '../../services/settings_service.dart';
 import '../json_response.dart';
+import '../public_origin.dart';
 
 /// Connexion via Discord (OAuth2 "Authorization Code"). Contrairement à
 /// NexusBase (qui enregistre côté Discord une redirect_uri différente par
@@ -34,14 +35,6 @@ import '../json_response.dart';
 Router buildDiscordAuthRoutes(AuthService authService, SettingsService settingsService) {
   final router = Router();
 
-  String _origin(Request request) {
-    final uri = request.requestedUri;
-    final port = uri.hasPort && !((uri.scheme == 'https' && uri.port == 443) || (uri.scheme == 'http' && uri.port == 80))
-        ? ':${uri.port}'
-        : '';
-    return '${uri.scheme}://${uri.host}$port';
-  }
-
   router.get('/authorize', (Request request) async {
     try {
       final settings = await settingsService.get();
@@ -62,7 +55,7 @@ Router buildDiscordAuthRoutes(AuthService authService, SettingsService settingsS
       }
 
       final state = base64Url.encode(utf8.encode(target));
-      final redirectUri = '${_origin(request)}/api/auth/discord/callback';
+      final redirectUri = '${publicOrigin(request)}/api/auth/discord/callback';
 
       final authorizeUrl = Uri.https('discord.com', '/api/oauth2/authorize', {
         'client_id': settings.discordClientId,
@@ -108,7 +101,7 @@ Router buildDiscordAuthRoutes(AuthService authService, SettingsService settingsS
         return jsonResponse({'error': 'Client secret Discord non configuré'}, status: 500);
       }
 
-      final redirectUri = '${_origin(request)}/api/auth/discord/callback';
+      final redirectUri = '${publicOrigin(request)}/api/auth/discord/callback';
 
       final tokenResponse = await http.post(
         Uri.https('discord.com', '/api/oauth2/token'),

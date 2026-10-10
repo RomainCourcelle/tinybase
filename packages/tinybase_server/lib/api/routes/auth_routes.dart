@@ -163,5 +163,42 @@ Router buildAuthRoutes(AuthService authService) {
     }
   });
 
+  /// Play Store / OAuth : envoi d'un lien de confirmation par email.
+  router.post('/request-delete-account', (Request request) async {
+    try {
+      final limited = rejectIfRateLimited(request, 'request-delete-account');
+      if (limited != null) return limited;
+      final body = await request.readJson();
+      final email = body['email'] as String?;
+      if (email == null || email.isEmpty) {
+        return jsonResponse({'error': 'email requis'}, status: 400);
+      }
+      final result = await authService.requestAccountDeletion(email);
+      return jsonResponse({
+        'ok': true,
+        if (result.resetToken != null) 'deleteToken': result.resetToken,
+      });
+    } catch (e) {
+      return errorResponse(e);
+    }
+  });
+
+  /// Confirme la suppression via le token du lien email.
+  router.post('/confirm-delete-account', (Request request) async {
+    try {
+      final limited = rejectIfRateLimited(request, 'confirm-delete-account');
+      if (limited != null) return limited;
+      final body = await request.readJson();
+      final token = body['token'] as String?;
+      if (token == null || token.isEmpty) {
+        return jsonResponse({'error': 'token requis'}, status: 400);
+      }
+      await authService.confirmAccountDeletion(token);
+      return jsonResponse({'ok': true});
+    } catch (e) {
+      return errorResponse(e);
+    }
+  });
+
   return router;
 }

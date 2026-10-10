@@ -271,6 +271,7 @@ class AuthService {
     await db.writeTransaction((tx) async {
       await tx.execute('DELETE FROM _refresh_tokens WHERE user_id = ?', [userId]);
       await tx.execute('DELETE FROM _password_resets WHERE user_id = ?', [userId]);
+      await tx.execute('DELETE FROM _account_deletions WHERE user_id = ?', [userId]);
       await tx.execute('DELETE FROM users WHERE id = ?', [userId]);
     });
     await files.deleteRecordFiles('users', userId);
@@ -283,6 +284,63 @@ class AuthService {
   }) async {
     final session = await login(email, password);
     await deleteAccount(session.userId);
+  }
+
+  /// Demande un lien de suppression par email (comptes OAuth sans password).
+  /// Réponse toujours ok — pas d'énumération d'emails, même si SMTP échoue.
+  Future<ForgotPasswordResult> requestAccountDeletion(String email) async {
+    final normalized = _normalizeEmail(email);
+    final row = await db.getOptional('SELECT id FROM users WHERE email = ?', [normalized]);
+    if (row == null) {
+      return const ForgotPasswordResult(ok: true);
+    }
+
+    final userId = row['id'] as String;
+    await db.execute('DELETE FROM _account_deletions WHERE user_id = ?', [userId]);
+
+    final rawToken = _uuid.v4() + _uuid.v4();
+    final id = _uuid.v4();
+    final now = DateTime.now().toUtc();
+    final expires = now.add(const Duration(hours: 1));
+    await db.execute(
+      'INSERT INTO _account_deletions (id, user_id, token_hash, expires_at, created) VALUES (?, ?, ?, ?, ?)',
+      [id, userId, _hashToken(rawToken), expires.toIso8601String(), now.toIso8601String()],
+    );
+
+    final link = Config.accountDeletionLink(rawToken);
+    final smtp = await settings.getSmtpConfig();
+    if (smtp != null && link != null) {
+      try {
+        await mail.sendAccountDeletion(toEmail: normalized, deleteLink: link, smtp: smtp);
+      } catch (e) {
+        // ignore: avoid_print
+        print('SMTP account-deletion failed: $e');
+        // Ne pas throw : même réponse que "email inconnu".
+      }
+    }
+
+    return ForgotPasswordResult(
+      ok: true,
+      resetToken: Config.returnPasswordResetToken ? rawToken : null,
+    );
+  }
+
+  /// Confirme la suppression via le token reçu par email.
+  Future<void> confirmAccountDeletion(String token) async {
+    final hash = _hashToken(token);
+    final row = await db.getOptional(
+      'SELECT id, user_id, expires_at FROM _account_deletions WHERE token_hash = ?',
+      [hash],
+    );
+    if (row == null) throw AuthException('Lien de suppression invalide ou expiré');
+    final expiresAt = DateTime.tryParse(row['expires_at'] as String);
+    if (expiresAt == null || expiresAt.isBefore(DateTime.now().toUtc())) {
+      await db.execute('DELETE FROM _account_deletions WHERE id = ?', [row['id']]);
+      throw AuthException('Lien de suppression invalide ou expiré');
+    }
+    final userId = row['user_id'] as String;
+    await db.execute('DELETE FROM _account_deletions WHERE user_id = ?', [userId]);
+    await deleteAccount(userId);
   }
 
   /// Demande de reset — réponse toujours ok (pas d'énumération d'emails).
@@ -313,7 +371,7 @@ class AuthService {
       } catch (e) {
         // ignore: avoid_print
         print('SMTP password-reset failed: $e');
-        throw AuthException('Impossible d\'envoyer l\'email de réinitialisation');
+        // Ne pas throw : même réponse que "email inconnu" (anti-énumération).
       }
     }
 

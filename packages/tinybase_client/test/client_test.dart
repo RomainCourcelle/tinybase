@@ -136,6 +136,40 @@ void main() {
       expect(TinyBaseAuth.isFatalAuthStatus(502), isFalse);
       expect(TinyBaseAuth.isFatalAuthStatus(0), isFalse);
     });
+
+    test('access token vide n\'est pas authentifié', () async {
+      final store = InMemoryTokenStore();
+      await store.writeSession(
+        accessToken: '',
+        refreshToken: 'refresh',
+        userJson: jsonEncode({'id': 'u1', 'email': 'a@b.c'}),
+      );
+      final mock = MockClient((request) async {
+        if (request.url.path == '/api/auth/refresh') {
+          return http.Response(jsonEncode({'error': 'bad gateway'}), 502);
+        }
+        return http.Response('nope', 500);
+      });
+      final client = TinyBaseClient(
+        baseUrl: 'https://api.example.com',
+        tokenStore: store,
+        httpClient: mock,
+      );
+      // Simule restore partiel sans accès valide.
+      final refresh = await store.readRefreshToken();
+      expect(refresh, 'refresh');
+      final access = await store.readAccessToken();
+      expect(access, '');
+      if (access != null && access.isNotEmpty) {
+        // ne doit pas arriver
+        fail('access devrait être vide');
+      }
+      expect(client.auth.isAuthenticated, isFalse);
+      final ok = await client.auth.restore();
+      // 502 + access vide → pas de session offline valide
+      expect(ok, isFalse);
+      expect(client.auth.isAuthenticated, isFalse);
+    });
   });
 
   group('TinyBaseCollection', () {

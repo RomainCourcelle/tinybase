@@ -84,6 +84,18 @@ class Config {
     return '$base/reset-password?token=${Uri.encodeComponent(token)}';
   }
 
+  /// Lien confirmation suppression de compte.
+  /// Défaut : `$publicBaseUrl/delete-account?token={token}`.
+  static String? accountDeletionLink(String token) {
+    final tpl = _env('ACCOUNT_DELETION_URL_TEMPLATE');
+    if (tpl != null && tpl.contains('{token}')) {
+      return tpl.replaceAll('{token}', Uri.encodeComponent(token));
+    }
+    final base = publicBaseUrl;
+    if (base == null) return null;
+    return '$base/delete-account?token=${Uri.encodeComponent(token)}';
+  }
+
   /// Fallback legacy : préférer Admin → Réglages → Email / SMTP.
   /// Si `_settings` n'a pas de SMTP, ces env restent utilisées.
   static String? get smtpHost => _env('SMTP_HOST');

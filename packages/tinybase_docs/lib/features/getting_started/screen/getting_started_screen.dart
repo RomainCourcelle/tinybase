@@ -178,9 +178,14 @@ await auth.logout(); // révoque le refresh côté serveur''',
               where: 'Écran réglages, après confirmation',
               detail:
                   'Efface l’utilisateur, ses sessions, les records dont il est `owner`, et leurs fichiers. '
-                  'Play Store : publie aussi l’URL `{PUBLIC_BASE_URL}/delete-account` (page web sans l’app).',
+                  'Play Store : URL `{PUBLIC_BASE_URL}/delete-account` — email+password, '
+                  'ou lien par email pour Google/Apple/Discord/Microsoft. '
+                  'OAuth Discord/Microsoft : déclarer '
+                  '`{PUBLIC_BASE_URL}/api/auth/discord/callback` (idem microsoft) '
+                  'et définir `PUBLIC_BASE_URL` sur Railway.',
               code: r'''await client.auth.deleteAccount();
-// Page web (stores) : GET /delete-account''',
+// Page web (stores) : GET /delete-account
+// OAuth sans password : formulaire « Recevoir le lien » sur la même page''',
             ),
             DocStep(
               label: 'Mot de passe oublié',

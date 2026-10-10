@@ -1,3 +1,8 @@
+## 0.4.3
+
+- Empty access tokens are ignored (`isAuthenticated`, Bearer headers, prefs migration).
+- `downloadFile` uses the same request timeout as JSON calls.
+
 ## 0.4.1
 
 - `restore()` / refresh: logout only on 400/401/403 (keep session on 502/429).

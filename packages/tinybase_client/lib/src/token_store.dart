@@ -138,9 +138,15 @@ class SecureTokenStore implements TokenStore {
     if ((existing == null || existing.isEmpty) &&
         legacyRefresh != null &&
         legacyRefresh.isNotEmpty) {
-      await _storage.write(key: _kAccess, value: legacyAccess ?? '');
+      // Ne jamais écrire une chaîne vide : `isAuthenticated` / Bearer se
+      // basent sur null vs non-null ; `''` ferait partir un `Bearer `.
+      if (legacyAccess != null && legacyAccess.isNotEmpty) {
+        await _storage.write(key: _kAccess, value: legacyAccess);
+      }
       await _storage.write(key: _kRefresh, value: legacyRefresh);
-      await _storage.write(key: _kUser, value: legacyUser ?? '');
+      if (legacyUser != null && legacyUser.isNotEmpty) {
+        await _storage.write(key: _kUser, value: legacyUser);
+      }
     }
 
     // Always wipe legacy plaintext keys once we've checked.

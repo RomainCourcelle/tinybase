@@ -2,6 +2,7 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import 'package:tinybase/api/middleware/rate_limit_middleware.dart';
+import 'package:tinybase/api/public_origin.dart';
 import 'package:tinybase/api/routes/discord_auth_routes.dart';
 import 'package:tinybase/services/filter_parser.dart';
 
@@ -46,6 +47,13 @@ void main() {
       final (sql, params) = FilterParser.parse('title = "null"', {'title'});
       expect(sql, '"title" = ?');
       expect(params, ['null']);
+    });
+  });
+
+  group('publicOrigin', () {
+    test('fallback sur requestedUri si PUBLIC_BASE_URL absent', () {
+      final req = Request('GET', Uri.parse('https://api.example.com/api/auth/discord/callback'));
+      expect(publicOrigin(req), 'https://api.example.com');
     });
   });
 

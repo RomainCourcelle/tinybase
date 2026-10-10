@@ -2,11 +2,13 @@ import 'package:shelf/shelf.dart';
 
 import '../../core/config.dart';
 
-/// Page web Play Store : suppression de compte (email + mot de passe).
+/// Page web Play Store : suppression de compte (password OU lien email).
 Response deleteAccountPage(Request request) {
   final app = _esc(Config.appName ?? 'TinyBase');
+  final token = request.url.queryParameters['token'] ?? '';
+  final html = token.isEmpty ? _deleteAccountHtml(app) : _confirmDeleteHtml(app, token);
   return Response.ok(
-    _deleteAccountHtml(app),
+    html,
     headers: {'content-type': 'text/html; charset=utf-8'},
   );
 }
@@ -42,10 +44,13 @@ String _shell(String app, String title, String body) => '''
     label { display: block; margin: 14px 0 4px; font-size: .9rem; }
     input { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid #8884; font-size: 1rem; }
     button { margin-top: 18px; width: 100%; padding: 12px; border: 0; border-radius: 8px; background: #1b7f4e; color: #fff; font-weight: 600; font-size: 1rem; cursor: pointer; }
+    button.secondary { background: transparent; color: inherit; border: 1px solid #8886; margin-top: 10px; }
     button:disabled { opacity: .6; cursor: default; }
     .msg { margin-top: 16px; padding: 12px; border-radius: 8px; background: #8882; }
     .err { background: #c6282818; color: #c62828; }
     .ok { background: #1b7f4e18; color: #1b7f4e; }
+    hr { border: 0; border-top: 1px solid #8884; margin: 28px 0; }
+    h2 { font-size: 1.05rem; margin: 0 0 6px; }
   </style>
 </head>
 <body>
@@ -57,21 +62,38 @@ $body
 String _deleteAccountHtml(String app) => _shell(app, 'Supprimer mon compte', '''
   <h1>Supprimer mon compte</h1>
   <p class="muted">$app — cette action est définitive : ton compte, tes sessions et tes données personnelles associées seront effacés.</p>
-  <form id="f">
+
+  <h2>Compte email / mot de passe</h2>
+  <form id="f-pass">
     <label for="email">Email</label>
     <input id="email" name="email" type="email" required autocomplete="username"/>
     <label for="password">Mot de passe</label>
     <input id="password" name="password" type="password" required autocomplete="current-password"/>
     <button type="submit">Supprimer définitivement</button>
   </form>
+
+  <hr/>
+
+  <h2>Compte Google / Apple / Discord / Microsoft</h2>
+  <p class="muted">Pas de mot de passe ? On t’envoie un lien de confirmation par email.</p>
+  <form id="f-link">
+    <label for="email2">Email du compte</label>
+    <input id="email2" name="email" type="email" required autocomplete="username"/>
+    <button type="submit" class="secondary">Recevoir le lien de suppression</button>
+  </form>
+
   <div id="msg" class="msg" hidden></div>
   <script>
-    const f = document.getElementById('f');
     const msg = document.getElementById('msg');
-    f.addEventListener('submit', async (e) => {
+    function show(ok, text) {
+      msg.className = 'msg ' + (ok ? 'ok' : 'err');
+      msg.textContent = text;
+      msg.hidden = false;
+    }
+    document.getElementById('f-pass').addEventListener('submit', async (e) => {
       e.preventDefault();
       msg.hidden = true;
-      const btn = f.querySelector('button');
+      const btn = e.target.querySelector('button');
       btn.disabled = true;
       try {
         const res = await fetch('/api/auth/delete-account', {
@@ -84,7 +106,60 @@ String _deleteAccountHtml(String app) => _shell(app, 'Supprimer mon compte', '''
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('Erreur ' + res.status));
-        f.hidden = true;
+        e.target.hidden = true;
+        document.getElementById('f-link').hidden = true;
+        show(true, 'Compte supprimé. Tu peux fermer cette page.');
+      } catch (err) {
+        show(false, err.message || String(err));
+        btn.disabled = false;
+      }
+    });
+    document.getElementById('f-link').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.hidden = true;
+      const btn = e.target.querySelector('button');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/auth/request-delete-account', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('email2').value.trim(),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('Erreur ' + res.status));
+        show(true, 'Si un compte existe pour cet email, un lien de confirmation a été envoyé. Vérifie ta boîte mail.');
+      } catch (err) {
+        show(false, err.message || String(err));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+''');
+
+String _confirmDeleteHtml(String app, String token) => _shell(app, 'Confirmer la suppression', '''
+  <h1>Confirmer la suppression</h1>
+  <p class="muted">$app — clique pour supprimer définitivement ton compte.</p>
+  <button id="confirm" type="button">Supprimer définitivement mon compte</button>
+  <div id="msg" class="msg" hidden></div>
+  <script>
+    const token = ${jsonEncodeJs(token)};
+    const msg = document.getElementById('msg');
+    const btn = document.getElementById('confirm');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      msg.hidden = true;
+      try {
+        const res = await fetch('/api/auth/confirm-delete-account', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('Erreur ' + res.status));
+        btn.hidden = true;
         msg.className = 'msg ok';
         msg.textContent = 'Compte supprimé. Tu peux fermer cette page.';
         msg.hidden = false;
@@ -98,54 +173,51 @@ String _deleteAccountHtml(String app) => _shell(app, 'Supprimer mon compte', '''
   </script>
 ''');
 
+/// Encode a Dart string as a JS string literal.
+String jsonEncodeJs(String s) {
+  final escaped = s
+      .replaceAll('\\', '\\\\')
+      .replaceAll("'", "\\'")
+      .replaceAll('\n', '\\n')
+      .replaceAll('\r', '\\r')
+      .replaceAll('<', '\\u003c');
+  return "'$escaped'";
+}
+
 String _resetPasswordHtml(String app, String token) {
   final safeToken = _esc(token);
   return _shell(app, 'Nouveau mot de passe', '''
   <h1>Nouveau mot de passe</h1>
-  <p class="muted">$app — choisis un mot de passe d’au moins 8 caractères.</p>
+  <p class="muted">$app</p>
   <form id="f">
     <input type="hidden" id="token" value="$safeToken"/>
-    <label for="password">Nouveau mot de passe</label>
-    <input id="password" type="password" required minlength="8" autocomplete="new-password"/>
-    <label for="password2">Confirmer</label>
-    <input id="password2" type="password" required minlength="8" autocomplete="new-password"/>
+    <label for="password">Nouveau mot de passe (8 caractères min.)</label>
+    <input id="password" name="password" type="password" required minlength="8" autocomplete="new-password"/>
     <button type="submit">Enregistrer</button>
   </form>
   <div id="msg" class="msg" hidden></div>
   <script>
     const f = document.getElementById('f');
     const msg = document.getElementById('msg');
-    const token = document.getElementById('token').value;
-    if (!token) {
-      f.hidden = true;
-      msg.className = 'msg err';
-      msg.textContent = 'Lien invalide : token manquant.';
-      msg.hidden = false;
-    }
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
       msg.hidden = true;
-      const p1 = document.getElementById('password').value;
-      const p2 = document.getElementById('password2').value;
-      if (p1 !== p2) {
-        msg.className = 'msg err';
-        msg.textContent = 'Les mots de passe ne correspondent pas.';
-        msg.hidden = false;
-        return;
-      }
       const btn = f.querySelector('button');
       btn.disabled = true;
       try {
         const res = await fetch('/api/auth/reset-password', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ token, password: p1 }),
+          body: JSON.stringify({
+            token: document.getElementById('token').value,
+            password: document.getElementById('password').value,
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('Erreur ' + res.status));
         f.hidden = true;
         msg.className = 'msg ok';
-        msg.textContent = 'Mot de passe mis à jour. Tu peux te reconnecter dans l’app.';
+        msg.textContent = 'Mot de passe mis à jour. Tu peux te connecter.';
         msg.hidden = false;
       } catch (err) {
         msg.className = 'msg err';

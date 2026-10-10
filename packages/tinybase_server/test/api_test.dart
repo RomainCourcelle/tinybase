@@ -1437,6 +1437,7 @@ void main() {
       expect(contentType, contains('text/html'));
       expect(body, contains('Supprimer mon compte'));
       expect(body, contains('/api/auth/delete-account'));
+      expect(body, contains('/api/auth/request-delete-account'));
     });
 
     test('GET /reset-password sert le formulaire', () async {
@@ -1472,6 +1473,55 @@ void main() {
         'password': 'password1',
       });
       expect(loginStatus, 400);
+    });
+
+    test('request + confirm delete-account par lien email (OAuth / Play Store)', () async {
+      final (regStatus, _) = await client.post('/api/auth/register', json: {
+        'email': 'oauthdel@example.com',
+        'password': 'password1',
+      });
+      expect(regStatus, 201);
+
+      final (reqStatus, reqBody) = await client.post('/api/auth/request-delete-account', json: {
+        'email': 'oauthdel@example.com',
+      });
+      expect(reqStatus, 200);
+      expect(reqBody['ok'], true);
+      final deleteToken = reqBody['deleteToken'] as String?;
+      expect(deleteToken, isNotNull);
+
+      final (badStatus, _) = await client.post('/api/auth/confirm-delete-account', json: {
+        'token': 'not-a-real-token',
+      });
+      expect(badStatus, 400);
+
+      final (okStatus, okBody) = await client.post('/api/auth/confirm-delete-account', json: {
+        'token': deleteToken,
+      });
+      expect(okStatus, 200);
+      expect(okBody['ok'], true);
+
+      final (loginStatus, _) = await client.post('/api/auth/login', json: {
+        'email': 'oauthdel@example.com',
+        'password': 'password1',
+      });
+      expect(loginStatus, 400);
+
+      // Email inconnu : même réponse 200 (pas d'énumération).
+      final (unknownStatus, unknownBody) = await client.post(
+        '/api/auth/request-delete-account',
+        json: {'email': 'nobody-here@example.com'},
+      );
+      expect(unknownStatus, 200);
+      expect(unknownBody['ok'], true);
+    });
+
+    test('GET /delete-account?token= sert la page de confirmation', () async {
+      final (status, body, contentType) = await client.getRaw('/delete-account?token=abc');
+      expect(status, 200);
+      expect(contentType, contains('text/html'));
+      expect(body, contains('Confirmer la suppression'));
+      expect(body, contains('confirm-delete-account'));
     });
 
     test('SMTP configuré via admin → meta smtpConfigured + password jamais exposé', () async {

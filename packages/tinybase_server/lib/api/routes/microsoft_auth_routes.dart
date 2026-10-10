@@ -7,21 +7,13 @@ import 'package:shelf_router/shelf_router.dart';
 import '../../services/auth_service.dart';
 import '../../services/settings_service.dart';
 import '../json_response.dart';
+import '../public_origin.dart';
 import 'discord_auth_routes.dart' show isAllowedOAuthTarget;
 
 /// OAuth2 Microsoft (Azure AD v2) — même pattern que Discord :
 /// 1 redirect_uri serveur + `target` dans `state`.
 Router buildMicrosoftAuthRoutes(AuthService authService, SettingsService settingsService) {
   final router = Router();
-
-  String _origin(Request request) {
-    final uri = request.requestedUri;
-    final port = uri.hasPort &&
-            !((uri.scheme == 'https' && uri.port == 443) || (uri.scheme == 'http' && uri.port == 80))
-        ? ':${uri.port}'
-        : '';
-    return '${uri.scheme}://${uri.host}$port';
-  }
 
   router.get('/authorize', (Request request) async {
     try {
@@ -39,7 +31,7 @@ Router buildMicrosoftAuthRoutes(AuthService authService, SettingsService setting
       }
 
       final state = base64Url.encode(utf8.encode(target));
-      final redirectUri = '${_origin(request)}/api/auth/microsoft/callback';
+      final redirectUri = '${publicOrigin(request)}/api/auth/microsoft/callback';
 
       final authorizeUrl = Uri.https('login.microsoftonline.com', '/common/oauth2/v2.0/authorize', {
         'client_id': settings.microsoft.clientId,
@@ -83,7 +75,7 @@ Router buildMicrosoftAuthRoutes(AuthService authService, SettingsService setting
         return jsonResponse({'error': 'Client secret Microsoft non configuré'}, status: 500);
       }
 
-      final redirectUri = '${_origin(request)}/api/auth/microsoft/callback';
+      final redirectUri = '${publicOrigin(request)}/api/auth/microsoft/callback';
 
       final tokenResponse = await http.post(
         Uri.https('login.microsoftonline.com', '/common/oauth2/v2.0/token'),

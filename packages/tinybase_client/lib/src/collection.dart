@@ -136,11 +136,15 @@ class TinyBaseCollection {
     Future<http.Response> doGet({bool retried = false}) async {
       final headers = <String, String>{};
       final token = await client.tokenStore.readAccessToken();
-      if (token != null) headers['Authorization'] = 'Bearer $token';
-      final response = await client.httpClient.get(
-        client.uri('/api/collections/$name/records/$recordId/files/$field'),
-        headers: headers,
-      );
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+      final response = await client.httpClient
+          .get(
+            client.uri('/api/collections/$name/records/$recordId/files/$field'),
+            headers: headers,
+          )
+          .timeout(client.requestTimeout);
       if (response.statusCode == 401 && !retried) {
         final refreshed = await client.auth.tryRefresh();
         if (refreshed) return doGet(retried: true);
@@ -148,14 +152,18 @@ class TinyBaseCollection {
       return response;
     }
 
-    final response = await doGet();
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw TinyBaseException(response.statusCode, response.body);
+    try {
+      final response = await doGet();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw TinyBaseException(response.statusCode, response.body);
+      }
+      return DownloadedFile(
+        bytes: response.bodyBytes,
+        contentType: response.headers['content-type'],
+      );
+    } on TimeoutException {
+      throw TinyBaseException(0, 'Délai d\'attente dépassé');
     }
-    return DownloadedFile(
-      bytes: response.bodyBytes,
-      contentType: response.headers['content-type'],
-    );
   }
 
   /// Subscribes to realtime SSE changes on this collection.
@@ -176,7 +184,9 @@ class TinyBaseCollection {
         'Accept': 'text/event-stream',
       };
       final token = await client.tokenStore.readAccessToken();
-      if (token != null) headers['Authorization'] = 'Bearer $token';
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
 
       final request = http.Request('GET', client.uri('/api/collections/$name/realtime'));
       request.headers.addAll(headers);

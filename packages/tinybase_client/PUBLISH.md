@@ -10,8 +10,8 @@ Puis tagger :
 
 ```bash
 cd ../..
-git tag v0.4.1
-git push origin v0.4.1
+git tag v0.4.3
+git push origin v0.4.3
 ```
 
 Vérifier : https://pub.dev/packages/tinybase_client

@@ -46,6 +46,7 @@ class Database {
     await _bootstrapAdminsTable();
     await _bootstrapRefreshTokensTable();
     await _bootstrapPasswordResetsTable();
+    await _bootstrapAccountDeletionsTable();
 
     _initialized = true;
   }
@@ -305,6 +306,22 @@ class Database {
     ''');
     await instance.execute(
       'CREATE INDEX IF NOT EXISTS idx_password_resets_user ON _password_resets(user_id);',
+    );
+  }
+
+  /// Tokens one-shot pour suppression de compte (page web / OAuth sans password).
+  static Future<void> _bootstrapAccountDeletionsTable() async {
+    await instance.execute('''
+      CREATE TABLE IF NOT EXISTS _account_deletions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        created TEXT NOT NULL
+      );
+    ''');
+    await instance.execute(
+      'CREATE INDEX IF NOT EXISTS idx_account_deletions_user ON _account_deletions(user_id);',
     );
   }
 }
