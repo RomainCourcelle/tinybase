@@ -114,10 +114,12 @@ Router buildMicrosoftAuthRoutes(AuthService authService, SettingsService setting
         email: msEmail,
       );
 
-      // Fragment (#) : tokens hors query string (moins de logs / Referer).
-      final redirectTarget = '$target'
-          '#accessToken=${Uri.encodeQueryComponent(session.accessToken)}'
-          '&refreshToken=${Uri.encodeQueryComponent(session.refreshToken)}';
+      // Query (pas fragment) : Windows/Android stripent le # sur custom schemes.
+      final redirectTarget = oauthAppRedirect(
+        target: target,
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+      );
 
       return Response.found(redirectTarget);
     } catch (e) {

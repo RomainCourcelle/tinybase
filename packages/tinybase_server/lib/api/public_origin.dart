@@ -19,3 +19,18 @@ String publicOrigin(Request request) {
       : '';
   return '${uri.scheme}://${uri.host}$port';
 }
+
+/// Deep-link de retour app avec tokens en **query** (pas en fragment).
+///
+/// Windows / Android retirent souvent le `#fragment` quand ils ouvrent un
+/// custom scheme (`cerebrum://…`), ce qui laissait l'app sans session.
+String oauthAppRedirect({
+  required String target,
+  required String accessToken,
+  required String refreshToken,
+}) {
+  final sep = target.contains('?') ? '&' : '?';
+  return '$target$sep'
+      'accessToken=${Uri.encodeQueryComponent(accessToken)}'
+      '&refreshToken=${Uri.encodeQueryComponent(refreshToken)}';
+}

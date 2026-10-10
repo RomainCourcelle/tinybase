@@ -73,6 +73,13 @@ class _ChangeEntry {
 
 const _entries = <_ChangeEntry>[
   _ChangeEntry(
+    version: '0.4.4',
+    date: '2026-10',
+    bullets: [
+      'OAuth Discord/Microsoft : tokens en query sur le deep-link (le `#fragment` était perdu sur Windows/Android).',
+    ],
+  ),
+  _ChangeEntry(
     version: '0.4.3',
     date: '2026-10',
     bullets: [

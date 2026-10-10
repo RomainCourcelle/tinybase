@@ -57,6 +57,21 @@ void main() {
     });
   });
 
+  group('oauthAppRedirect', () {
+    test('met les tokens en query (pas en fragment)', () {
+      final url = oauthAppRedirect(
+        target: 'cerebrum://auth/callback',
+        accessToken: 'acc+1',
+        refreshToken: 'ref/2',
+      );
+      final uri = Uri.parse(url);
+      expect(uri.scheme, 'cerebrum');
+      expect(uri.fragment, isEmpty);
+      expect(uri.queryParameters['accessToken'], 'acc+1');
+      expect(uri.queryParameters['refreshToken'], 'ref/2');
+    });
+  });
+
   group('isAllowedOAuthTarget', () {
     test('accepte deep-links custom et localhost', () {
       expect(isAllowedOAuthTarget('myapp://login-callback'), isTrue);

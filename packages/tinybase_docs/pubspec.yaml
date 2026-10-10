@@ -1,7 +1,7 @@
 name: tinybase_docs
 description: Getting Started docs for TinyBase (Flutter Web).
 publish_to: 'none'
-version: 0.4.3+1
+version: 0.4.4+1
 
 environment:
   sdk: ^3.5.0
